@@ -12,6 +12,7 @@ import {
   ProductCodeTakenError
 } from '../errors/index.js'
 import { isValidObjectId, findUnknownParams } from '../utils/validators.js'
+import { logger } from '../config/logger.js'
 
 const ENTITY = 'producto'
 const REQUIRED_FIELDS = ['title', 'code', 'price', 'category']
@@ -65,7 +66,7 @@ export const productsService = {
     if (existing) throw new ProductCodeTakenError(data.code)
 
     const stock = data.stock ?? 0
-    return productsRepository.create({
+    const product = await productsRepository.create({
       title: data.title,
       description: data.description,
       code: data.code,
@@ -74,6 +75,8 @@ export const productsService = {
       category: data.category,
       status: resolveStatus(stock)
     })
+    logger.info(`Producto ${product._id} creado (${product.code}, stock ${stock})`)
+    return product
   },
 
   updateProduct: async (id, data = {}) => {
@@ -89,11 +92,18 @@ export const productsService = {
     const stock = changes.stock ?? current.stock
     changes.status = resolveStatus(stock)
 
-    return productsRepository.update(id, changes)
+    const updated = await productsRepository.update(id, changes)
+    logger.info(`Producto ${id} actualizado: ${Object.keys(changes).join(', ')}`)
+    if (current.status !== changes.status && changes.status === PRODUCT_STATUS.OUT_OF_STOCK) {
+      logger.warning(`El producto ${id} (${current.code}) se quedó sin stock`)
+    }
+    return updated
   },
 
   deleteProduct: async (id) => {
     await findOrFail(id)
-    return productsRepository.softDelete(id)
+    const deleted = await productsRepository.softDelete(id)
+    logger.info(`Producto ${id} eliminado (borrado lógico)`)
+    return deleted
   }
 }

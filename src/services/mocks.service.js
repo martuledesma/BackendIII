@@ -2,7 +2,7 @@
 // Decide QUÉ se genera y con qué reglas; delega la generación de campos a utils/mock-generators.js
 // y la persistencia a los repositories. Valida la entrada y lanza errores del dominio:
 // nunca arma respuestas HTTP (eso lo hace el middleware global de errores).
-import { config } from '../config/index.js'
+import { config, logger } from '../config/index.js'
 import {
   USER_ROLES,
   ORDER_STATUS,
@@ -15,6 +15,7 @@ import {
 import { usersRepository } from '../repositories/users.repository.js'
 import { ordersRepository } from '../repositories/orders.repository.js'
 import { deliveriesRepository } from '../repositories/deliveries.repository.js'
+import { calculateOrderTotal } from './orders.service.js'
 import {
   AppError,
   InvalidFieldError,
@@ -92,9 +93,6 @@ const allowedOrderStatuses = ({ hasCouriers, onlyWithDelivery }) =>
     return true
   })
 
-export const calculateOrderTotal = (items) =>
-  items.reduce((acc, item) => acc + item.unitPrice * item.quantity, 0)
-
 // ---------- Validaciones de entrada ----------
 
 const validateQueryParams = (query, allowed) => {
@@ -144,6 +142,19 @@ const generate = (entity, fn) => {
     if (error instanceof AppError) throw error
     throw new MockGenerationError(entity, error)
   }
+}
+
+// Cuenta los documentos de un resultado (lista o dataset { users, couriers, orders, deliveries }).
+const describeCount = (result) =>
+  Array.isArray(result)
+    ? `${result.length}`
+    : Object.entries(result).map(([key, list]) => `${list.length} ${key}`).join(', ')
+
+// Para los GET: genera en memoria y deja registro de qué se generó.
+const generateAndLog = (entity, fn) => {
+  const result = generate(entity, fn)
+  logger.info(`Mocks generados en memoria (sin guardar): ${describeCount(result)} ${Array.isArray(result) ? entity : ''}`.trim())
+  return result
 }
 
 // ---------- Construcción de entidades ----------
@@ -238,6 +249,11 @@ const getSeedRelations = async (entity) => {
       `Cargalos primero con POST /api/mocks/seed?entity=${MOCK_ENTITIES.USERS} o usá entity=${MOCK_ENTITIES.ALL}`
     )
   }
+  if (courierIds.length === 0) {
+    logger.warning(
+      `No hay repartidores (rol ${USER_ROLES.COURIER}) en la base: los pedidos de ${entity} se generan sin repartidor asignado`
+    )
+  }
   return { customerIds, courierIds }
 }
 
@@ -286,7 +302,9 @@ const insertBatch = async (entity, steps, { simulateFailure }) => {
     }
     return inserted
   } catch (cause) {
+    logger.warning(`Falló el seed de ${entity} (${cause.message}). Revirtiendo el lote...`)
     const rollback = await rollbackBatch(idsByCollection)
+    if (!rollback.done) logger.error(`No se pudo revertir el lote de ${entity}: ${rollback.reason}`)
     throw new MockSeedError(entity, cause, rollback)
   }
 }
@@ -299,25 +317,25 @@ export const mocksService = {
     validateQueryParams(query, QUERY_PARAMS.USERS)
     const qty = parseQty(query.qty)
     const role = parseRole(query.role)
-    return generate(MOCK_ENTITIES.USERS, () => buildUsers(qty, role))
+    return generateAndLog(MOCK_ENTITIES.USERS, () => buildUsers(qty, role))
   },
 
   generateCouriers: (query = {}) => {
     validateQueryParams(query, QUERY_PARAMS.QTY_ONLY)
     const qty = parseQty(query.qty)
-    return generate(MOCK_ENTITIES.COURIERS, () => buildUsers(qty, USER_ROLES.COURIER))
+    return generateAndLog(MOCK_ENTITIES.COURIERS, () => buildUsers(qty, USER_ROLES.COURIER))
   },
 
   generateOrders: (query = {}) => {
     validateQueryParams(query, QUERY_PARAMS.QTY_ONLY)
     const qty = parseQty(query.qty)
-    return generate(MOCK_ENTITIES.ORDERS, () => buildDataset(qty).orders)
+    return generateAndLog(MOCK_ENTITIES.ORDERS, () => buildDataset(qty).orders)
   },
 
   generateDeliveries: (query = {}) => {
     validateQueryParams(query, QUERY_PARAMS.QTY_ONLY)
     const qty = parseQty(query.qty)
-    return generate(MOCK_ENTITIES.DELIVERIES, () => {
+    return generateAndLog(MOCK_ENTITIES.DELIVERIES, () => {
       const { users, couriers } = buildRelatedPeople(qty)
       return buildOrdersWithDeliveries(qty, {
         customerIds: users.map((u) => u._id),
@@ -330,87 +348,15 @@ export const mocksService = {
   generateDataset: (query = {}) => {
     validateQueryParams(query, QUERY_PARAMS.QTY_ONLY)
     const qty = parseQty(query.qty)
-    return generate(MOCK_ENTITIES.ALL, () => buildDataset(qty))
+    return generateAndLog(MOCK_ENTITIES.ALL, () => buildDataset(qty))
   },
 
   // POST: inserta datos de prueba en MongoDB.
   seed: async (query = {}) => {
-    ensureSeedingAllowed()
-    validateQueryParams(query, QUERY_PARAMS.SEED)
-    const entity = parseEntity(query.entity)
-    const qty = parseQty(query.qty)
-    const role = parseRole(query.role)
-    const simulateFailure = parseBoolean('simulateFailure', query.simulateFailure)
-
-    // role solo tiene sentido al cargar usuarios.
-    if (role && entity !== MOCK_ENTITIES.USERS) {
-      throw new InvalidQueryParamError(['role'], QUERY_PARAMS.SEED.filter((p) => p !== 'role'))
-    }
-    const options = { simulateFailure }
-
-    switch (entity) {
-      case MOCK_ENTITIES.USERS: {
-        const users = await withPassword(generate(entity, () => buildUsers(qty, role)))
-        const inserted = await insertBatch(entity, [[MOCK_ENTITIES.USERS, users]], options)
-        return { insertados: inserted[MOCK_ENTITIES.USERS], coleccion: MOCK_ENTITIES.USERS }
-      }
-
-      case MOCK_ENTITIES.COURIERS: {
-        const couriers = await withPassword(generate(entity, () => buildUsers(qty, USER_ROLES.COURIER)))
-        const inserted = await insertBatch(entity, [[MOCK_ENTITIES.USERS, couriers]], options)
-        // Los repartidores son usuarios con rol COURIER: viven en la colección users.
-        return { insertados: inserted[MOCK_ENTITIES.USERS], coleccion: MOCK_ENTITIES.USERS, rol: USER_ROLES.COURIER }
-      }
-
-      case MOCK_ENTITIES.ORDERS: {
-        const relations = await getSeedRelations(entity)
-        const { orders, deliveries } = generate(entity, () => buildOrdersWithDeliveries(qty, relations))
-        const inserted = await insertBatch(entity, [
-          [MOCK_ENTITIES.ORDERS, orders],
-          [MOCK_ENTITIES.DELIVERIES, deliveries]
-        ], options)
-        return {
-          insertados: inserted[MOCK_ENTITIES.ORDERS],
-          coleccion: MOCK_ENTITIES.ORDERS,
-          relacionados: { [MOCK_ENTITIES.DELIVERIES]: inserted[MOCK_ENTITIES.DELIVERIES] ?? 0 }
-        }
-      }
-
-      case MOCK_ENTITIES.DELIVERIES: {
-        const relations = await getSeedRelations(entity)
-        const { orders, deliveries } = generate(entity, () =>
-          buildOrdersWithDeliveries(qty, { ...relations, onlyWithDelivery: true })
-        )
-        // Primero los pedidos: cada entrega referencia a su pedido.
-        const inserted = await insertBatch(entity, [
-          [MOCK_ENTITIES.ORDERS, orders],
-          [MOCK_ENTITIES.DELIVERIES, deliveries]
-        ], options)
-        return {
-          insertados: inserted[MOCK_ENTITIES.DELIVERIES],
-          coleccion: MOCK_ENTITIES.DELIVERIES,
-          relacionados: { [MOCK_ENTITIES.ORDERS]: inserted[MOCK_ENTITIES.ORDERS] }
-        }
-      }
-
-      case MOCK_ENTITIES.ALL: {
-        const dataset = generate(entity, () => buildDataset(qty))
-        const people = await withPassword([...dataset.users, ...dataset.couriers])
-        await insertBatch(entity, [
-          [MOCK_ENTITIES.USERS, people],
-          [MOCK_ENTITIES.ORDERS, dataset.orders],
-          [MOCK_ENTITIES.DELIVERIES, dataset.deliveries]
-        ], options)
-        const detalle = {
-          [MOCK_ENTITIES.USERS]: dataset.users.length,
-          [MOCK_ENTITIES.COURIERS]: dataset.couriers.length,
-          [MOCK_ENTITIES.ORDERS]: dataset.orders.length,
-          [MOCK_ENTITIES.DELIVERIES]: dataset.deliveries.length
-        }
-        const insertados = Object.values(detalle).reduce((a, b) => a + b, 0)
-        return { insertados, coleccion: MOCK_ENTITIES.ALL, detalle }
-      }
-    }
+    logger.debug(`Seed solicitado con parámetros ${JSON.stringify(query)}`)
+    const result = await runSeed(query)
+    logger.info(`Seed completado en MongoDB: ${JSON.stringify(result)}`)
+    return result
   },
 
   // DELETE: borra solo lo generado por mocks (isMock: true). Los datos reales no se tocan.
@@ -421,12 +367,92 @@ export const mocksService = {
     const deliveries = await deliveriesRepository.deleteMocks()
     const orders = await ordersRepository.deleteMocks()
     const users = await usersRepository.deleteMocks()
-    return {
-      eliminados: {
-        [MOCK_ENTITIES.DELIVERIES]: deliveries,
-        [MOCK_ENTITIES.ORDERS]: orders,
-        [MOCK_ENTITIES.USERS]: users
+    const eliminados = {
+      [MOCK_ENTITIES.DELIVERIES]: deliveries,
+      [MOCK_ENTITIES.ORDERS]: orders,
+      [MOCK_ENTITIES.USERS]: users
+    }
+    logger.info(`Datos de prueba eliminados de MongoDB: ${JSON.stringify(eliminados)}`)
+    return { eliminados }
+  }
+}
+
+// Lógica del seed: valida la entrada, genera y carga en MongoDB.
+const runSeed = async (query = {}) => {
+  ensureSeedingAllowed()
+  validateQueryParams(query, QUERY_PARAMS.SEED)
+  const entity = parseEntity(query.entity)
+  const qty = parseQty(query.qty)
+  const role = parseRole(query.role)
+  const simulateFailure = parseBoolean('simulateFailure', query.simulateFailure)
+
+  // role solo tiene sentido al cargar usuarios.
+  if (role && entity !== MOCK_ENTITIES.USERS) {
+    throw new InvalidQueryParamError(['role'], QUERY_PARAMS.SEED.filter((p) => p !== 'role'))
+  }
+  const options = { simulateFailure }
+
+  switch (entity) {
+    case MOCK_ENTITIES.USERS: {
+      const users = await withPassword(generate(entity, () => buildUsers(qty, role)))
+      const inserted = await insertBatch(entity, [[MOCK_ENTITIES.USERS, users]], options)
+      return { insertados: inserted[MOCK_ENTITIES.USERS], coleccion: MOCK_ENTITIES.USERS }
+    }
+
+    case MOCK_ENTITIES.COURIERS: {
+      const couriers = await withPassword(generate(entity, () => buildUsers(qty, USER_ROLES.COURIER)))
+      const inserted = await insertBatch(entity, [[MOCK_ENTITIES.USERS, couriers]], options)
+      // Los repartidores son usuarios con rol COURIER: viven en la colección users.
+      return { insertados: inserted[MOCK_ENTITIES.USERS], coleccion: MOCK_ENTITIES.USERS, rol: USER_ROLES.COURIER }
+    }
+
+    case MOCK_ENTITIES.ORDERS: {
+      const relations = await getSeedRelations(entity)
+      const { orders, deliveries } = generate(entity, () => buildOrdersWithDeliveries(qty, relations))
+      const inserted = await insertBatch(entity, [
+        [MOCK_ENTITIES.ORDERS, orders],
+        [MOCK_ENTITIES.DELIVERIES, deliveries]
+      ], options)
+      return {
+        insertados: inserted[MOCK_ENTITIES.ORDERS],
+        coleccion: MOCK_ENTITIES.ORDERS,
+        relacionados: { [MOCK_ENTITIES.DELIVERIES]: inserted[MOCK_ENTITIES.DELIVERIES] ?? 0 }
       }
+    }
+
+    case MOCK_ENTITIES.DELIVERIES: {
+      const relations = await getSeedRelations(entity)
+      const { orders, deliveries } = generate(entity, () =>
+        buildOrdersWithDeliveries(qty, { ...relations, onlyWithDelivery: true })
+      )
+      // Primero los pedidos: cada entrega referencia a su pedido.
+      const inserted = await insertBatch(entity, [
+        [MOCK_ENTITIES.ORDERS, orders],
+        [MOCK_ENTITIES.DELIVERIES, deliveries]
+      ], options)
+      return {
+        insertados: inserted[MOCK_ENTITIES.DELIVERIES],
+        coleccion: MOCK_ENTITIES.DELIVERIES,
+        relacionados: { [MOCK_ENTITIES.ORDERS]: inserted[MOCK_ENTITIES.ORDERS] }
+      }
+    }
+
+    case MOCK_ENTITIES.ALL: {
+      const dataset = generate(entity, () => buildDataset(qty))
+      const people = await withPassword([...dataset.users, ...dataset.couriers])
+      await insertBatch(entity, [
+        [MOCK_ENTITIES.USERS, people],
+        [MOCK_ENTITIES.ORDERS, dataset.orders],
+        [MOCK_ENTITIES.DELIVERIES, dataset.deliveries]
+      ], options)
+      const detalle = {
+        [MOCK_ENTITIES.USERS]: dataset.users.length,
+        [MOCK_ENTITIES.COURIERS]: dataset.couriers.length,
+        [MOCK_ENTITIES.ORDERS]: dataset.orders.length,
+        [MOCK_ENTITIES.DELIVERIES]: dataset.deliveries.length
+      }
+      const insertados = Object.values(detalle).reduce((a, b) => a + b, 0)
+      return { insertados, coleccion: MOCK_ENTITIES.ALL, detalle }
     }
   }
 }

@@ -15,6 +15,7 @@ import {
   LastAdminError
 } from '../errors/index.js'
 import { hashPassword } from '../utils/password.js'
+import { logger } from '../config/logger.js'
 import { isValidObjectId, findUnknownParams } from '../utils/validators.js'
 
 const ENTITY = 'usuario'
@@ -78,7 +79,7 @@ export const usersService = {
     if (existing) throw new EmailAlreadyRegisteredError(data.email)
 
     const role = data.role ?? USER_ROLES.USER
-    return usersRepository.create({
+    const user = await usersRepository.create({
       firstName: data.firstName,
       lastName: data.lastName,
       email: data.email,
@@ -87,6 +88,8 @@ export const usersService = {
       role,
       courierProfile: resolveCourierProfile(role, data.courierProfile)
     })
+    logger.info(`Usuario ${user._id} creado (${user.email}, rol ${user.role})`)
+    return user
   },
 
   updateUser: async (id, data = {}) => {
@@ -109,12 +112,19 @@ export const usersService = {
       changes.courierProfile = resolveCourierProfile(finalRole, changes.courierProfile ?? current.courierProfile)
     }
 
-    return usersRepository.update(id, changes)
+    const updated = await usersRepository.update(id, changes)
+    logger.info(`Usuario ${id} actualizado: ${Object.keys(changes).join(', ')}`)
+    if (changes.role && changes.role !== current.role) {
+      logger.warning(`Cambio de rol del usuario ${id}: ${current.role} → ${changes.role}`)
+    }
+    return updated
   },
 
   deleteUser: async (id) => {
     const current = await findOrFail(id)
     if (current.role === USER_ROLES.ADMIN) await ensureNotLastAdmin()
-    return usersRepository.softDelete(id)
+    const deleted = await usersRepository.softDelete(id)
+    logger.info(`Usuario ${id} eliminado (borrado lógico)`)
+    return deleted
   }
 }

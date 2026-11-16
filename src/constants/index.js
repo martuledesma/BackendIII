@@ -63,6 +63,27 @@ export const MOCK_DEFAULTS = Object.freeze({
   EMAIL_DOMAIN: 'test.com'
 })
 
+// Niveles del logger: cuanto menor el número, más grave.
+// Un transport con nivel "warning" registra fatal, error y warning.
+export const LOG_LEVELS = Object.freeze({
+  fatal: 0,
+  error: 1,
+  warning: 2,
+  info: 3,
+  http: 4,
+  debug: 5
+})
+
+export const LOG_FILES = Object.freeze({
+  DIR: 'logs',
+  ERROR: 'logs/error.log',
+  ERROR_MAX_SIZE_BYTES: 5 * 1024 * 1024, // 5 MB
+  ERROR_MAX_FILES: 5,
+  COMBINED_PATTERN: 'logs/combined-%DATE%.log',
+  COMBINED_MAX_SIZE: '20m',
+  COMBINED_RETENTION: '14d'
+})
+
 export const ENVIRONMENTS = Object.freeze({
   DEVELOPMENT: 'development',
   PRODUCTION: 'production',

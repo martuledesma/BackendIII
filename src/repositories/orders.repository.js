@@ -24,6 +24,11 @@ export const ordersRepository = {
       .lean()
   },
 
+  create: async (orderData) => {
+    const created = await OrderModel.create(orderData)
+    return ordersRepository.getById(created._id)
+  },
+
   insertMany: async (orders) => {
     const inserted = await OrderModel.insertMany(orders, { ordered: false })
     return inserted.length

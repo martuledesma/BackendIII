@@ -5,3 +5,8 @@ node_modules/
 npm-debug.log*
 .DS_Store
 coverage/
+
+# Logs generados por la aplicación (Winston). Se versiona solo la carpeta vacía.
+logs/*
+!logs/.gitkeep
+*.log

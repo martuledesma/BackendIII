@@ -1,7 +1,7 @@
 // Capa común de errores: el ÚNICO lugar del proyecto que arma respuestas de error.
 // Recibe cualquier error que llegue vía next(error), lo normaliza a un AppError
 // y responde siempre con la misma estructura.
-import { config } from '../config/index.js'
+import { config, logger } from '../config/index.js'
 import { RESPONSE_STATUS, HTTP_STATUS } from '../constants/index.js'
 import {
   ERRORS,
@@ -50,6 +50,25 @@ const normalizeError = (err) => {
   return error
 }
 
+// Registra el error con el nivel que corresponde. El log complementa la respuesta, no la reemplaza.
+// - Errores esperados del dominio (4xx: datos inválidos, no encontrado, conflicto) → warning
+// - Fallas controladas del servidor (5xx operacional, ej. MOCK_SEED_FAILED) → error
+// - Errores inesperados (bugs, caída de MongoDB) → error con stack trace
+const logError = (error, originalError, req) => {
+  const summary = `${error.code} en ${req.method} ${req.originalUrl} → ${error.statusCode}: ${error.message}`
+  const isServerError = error.statusCode >= HTTP_STATUS.INTERNAL_SERVER_ERROR
+
+  if (!isServerError && error.isOperational) {
+    logger.warning(summary)
+  } else if (error.isOperational) {
+    logger.error(summary, { details: error.details })
+  } else {
+    // Incluye el stack de la causa real (o del error original) para poder investigarlo.
+    const stack = error.cause?.stack ?? originalError.stack
+    logger.error(summary, { details: error.details, stack })
+  }
+}
+
 // 404 para rutas inexistentes: no responde, deriva al middleware de errores.
 export const notFoundHandler = (req, res, next) => {
   next(new RouteNotFoundError(req.method, req.originalUrl))
@@ -60,9 +79,7 @@ export const errorHandler = (err, req, res, next) => {
   const error = normalizeError(err)
   const isServerError = error.statusCode >= HTTP_STATUS.INTERNAL_SERVER_ERROR
 
-  if (isServerError || !error.isOperational) {
-    console.error(`[error] ${req.method} ${req.originalUrl} → ${error.code}`, err)
-  }
+  logError(error, err, req)
 
   // En producción no se exponen detalles internos de los errores 500.
   const hideInternals = isServerError && config.isProduction
