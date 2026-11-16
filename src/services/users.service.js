@@ -74,11 +74,13 @@ export const usersService = {
       throw new InvalidFieldError('password', `debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`)
     }
     validateRole(data.role)
+    const role = data.role ?? USER_ROLES.USER
+    // Se valida todo el body antes de consultar la base.
+    const courierProfile = resolveCourierProfile(role, data.courierProfile)
 
     const existing = await usersRepository.getByEmail(data.email)
     if (existing) throw new EmailAlreadyRegisteredError(data.email)
 
-    const role = data.role ?? USER_ROLES.USER
     const user = await usersRepository.create({
       firstName: data.firstName,
       lastName: data.lastName,
@@ -86,7 +88,7 @@ export const usersService = {
       password: await hashPassword(data.password),
       phone: data.phone ?? null,
       role,
-      courierProfile: resolveCourierProfile(role, data.courierProfile)
+      courierProfile
     })
     logger.info(`Usuario ${user._id} creado (${user.email}, rol ${user.role})`)
     return user

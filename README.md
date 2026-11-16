@@ -6,6 +6,9 @@ API REST de ShipNow con **arquitectura por capas** (Router → Controller → Se
 - Módulo 2: mocking y carga de datos de prueba → ver [Módulo de mocking](#módulo-de-mocking-apimocks).
 - Módulo 3: manejo profesional de errores → ver [Manejo de errores](#manejo-de-errores).
 - Módulo 4: logging y monitoreo básico con Winston → ver [Logging](#logging-con-winston).
+- Módulo 5: documentación de la API con Swagger → ver [Documentación con Swagger](#documentación-con-swagger).
+
+> 📘 **Documentación interactiva:** con el servidor levantado, entrá a **http://localhost:8080/api/docs**.
 
 ## Requisitos
 
@@ -35,7 +38,7 @@ npm run dev     # con recarga automática (node --watch)
 npm start
 ```
 
-Para comprobar que funciona: `GET http://localhost:8080/health` → `{ "status": "ok" }`.
+Para comprobar que funciona: `GET http://localhost:8080/health` → `{ "status": "ok" }`. La documentación queda en **http://localhost:8080/api/docs**.
 
 ### Validación del entorno
 
@@ -55,10 +58,15 @@ src/
 │   ├── env.config.js        # dotenv + validación (único acceso a process.env)
 │   ├── logger.factory.js    # configuración única de Winston (niveles, formato, salidas, entornos)
 │   ├── logger.js            # instancia compartida del logger
+│   ├── swagger.config.js    # especificación OpenAPI (info, servidor, tags) + opciones de Swagger UI
 │   ├── db.config.js         # conexión a MongoDB
 │   └── index.js             # punto de entrada de la configuración
 ├── constants/
 │   └── index.js             # USER_ROLES, PRODUCT_STATUS, HTTP_STATUS... (Object.freeze)
+├── docs/
+│   ├── components.js        # schemas y parámetros reutilizables
+│   ├── helpers.js           # arma respuestas de éxito/error desde el diccionario de errores
+│   └── paths/               # un archivo por módulo: users, products, orders, deliveries, mocks, logger
 ├── controllers/             # HTTP: req → service → res (products, users, orders, deliveries, mocks)
 ├── services/                # reglas de negocio (incluye mocks.service.js)
 ├── repositories/            # único lugar que conoce Mongoose
@@ -476,6 +484,64 @@ curl -X POST http://localhost:8080/api/orders -H "Content-Type: application/json
 ```
 
 Para ver un `fatal`, borrá `MONGODB_URI` del `.env` y corré `npm run dev`. La app registra el fatal en la consola y en `logs/error.log` y no arranca.
+
+## Documentación con Swagger
+
+La API está documentada con **OpenAPI 3.0** y se puede consultar y probar desde **Swagger UI** ([swagger-ui-express](https://github.com/scottie1984/swagger-ui-express)).
+
+| Ruta | Qué muestra |
+|---|---|
+| **`/api/docs`** | Swagger UI interactivo. Con **Try it out** se puede ejecutar cada endpoint contra el servidor local. |
+| `/api/docs.json` | La especificación OpenAPI en JSON, por ejemplo para importarla en Postman o Insomnia |
+
+### Cómo verla
+
+1. Levantá el servidor (ver [Cómo correr el proyecto](#cómo-correr-el-proyecto-localmente)):
+   ```bash
+   npm install
+   npm run dev
+   ```
+2. Abrí **http://localhost:8080/api/docs** en el navegador. Si cambiaste `PORT` en el `.env`, usá ese puerto: el servidor que figura en Swagger se arma con el mismo `PORT`.
+
+### Qué está documentado
+
+Los endpoints están agrupados por **tags**, uno por módulo:
+
+| Tag | Endpoints |
+|---|---|
+| **Users** | `GET/POST /api/users`, `GET/PUT/DELETE /api/users/{uid}` |
+| **Products** | `GET/POST /api/products`, `GET/PUT/DELETE /api/products/{pid}` |
+| **Orders** | `GET/POST /api/orders`, `GET /api/orders/{oid}` |
+| **Deliveries** | `GET /api/deliveries`, `GET /api/deliveries/{did}` |
+| **Mocks** | `GET /api/mocks/users`, `/couriers`, `/orders`, `/deliveries`, `/dataset` · `POST /api/mocks/seed` · `DELETE /api/mocks/seed` |
+| **Logger** | `GET /api/loggerTest` (herramienta interna de validación, no es una funcionalidad del negocio) |
+
+Cada endpoint indica el método, la ruta, una descripción, los parámetros de ruta y de query, el body esperado (con ejemplo), la respuesta exitosa y **todas las respuestas de error posibles**, agrupadas por status, con un ejemplo por código.
+
+**Schemas reutilizables** (`components.schemas`):
+- Respuestas: `SuccessResponse` y `ErrorResponse`.
+- Entidades: `User`, `CourierProfile`, `Product`, `Order`, `OrderItem`, `Address`, `Delivery`, más `UserSummary` y `OrderSummary` (datos incluidos con populate).
+- Entradas: `UserCreateInput`, `UserUpdateInput`, `ProductCreateInput`, `ProductUpdateInput`, `OrderCreateInput`, `SeedInput`.
+- Mocks y logger: `MockUser`, `MockOrder`, `MockDelivery`, `MockDataset`, `SeedResult`, `ClearResult`, `LoggerTestResult`.
+
+### Cómo se mantiene fiel a la API real
+
+- **La configuración está separada de las rutas.** `src/config/swagger.config.js` arma la especificación con la información general, el servidor local y los tags. La documentación de cada módulo vive en `src/docs/paths/`. `src/routes/docs.router.js` solo sirve la especificación.
+- **Los enums salen de las constantes del proyecto.** Roles, estados de pedido y de entrega, prioridades, vehículos, entidades de mocks y límites de `qty` se toman de `src/constants/index.js`, el mismo archivo que usan los modelos y los services.
+- **Los errores salen del diccionario real.** Cada respuesta de error se genera con `errorResponses(...códigos)` (`src/docs/helpers.js`), que toma el status y el mensaje de `src/errors/errors.dictionary.js`. Si se documenta un código que no existe, la app no arranca. Además, el status HTTP de cada código siempre es el real.
+- **Las rutas documentadas coinciden con las de Express.** Son las mismas 23 operaciones en los routers que en Swagger, con los mismos nombres de parámetros (`uid`, `pid`, `oid`, `did`, `qty`, `role`, `entity`, `status`, `priority`, etc.).
+
+### Aclaraciones para probar desde Swagger
+
+- **No hay autenticación**: todos los endpoints se pueden probar directamente.
+- **Para crear un pedido** (`POST /api/orders`), el campo `user` tiene que ser el `_id` de un cliente existente con rol `USER`. Podés cargar clientes con `POST /api/mocks/seed` (entity `users` o `all`) y copiar un `_id` de `GET /api/users?role=USER`.
+- **El seed acepta los parámetros por query o en el body JSON** (`{ "entity": "all", "qty": 10 }`). Si llegan en ambos, gana la query.
+- **Errores fáciles de probar:**
+  - `qty = -5`, `0`, `abc` o `500` en cualquier endpoint de mocks devuelve 400 con `MOCK_*_QUANTITY`.
+  - `status = PERDIDO` en `GET /api/orders` devuelve 400 `INVALID_STATUS`.
+  - Un id inexistente con formato válido devuelve 404.
+  - `simulateFailure = true` en el seed devuelve 500 `MOCK_SEED_FAILED`, con rollback.
+- **En producción** (`NODE_ENV=production`), el seed y el borrado de mocks responden 403 `SEEDING_DISABLED`, y `simulateFailure` deja de existir.
 
 ## Por qué separé la lógica así entre Service y Repository
 

@@ -101,8 +101,10 @@ const validateQueryParams = (query, allowed) => {
 }
 
 // qty: entero entre 1 y MAX_QTY. Rechaza decimales, texto, negativos, cero y repetidos (?qty=1&qty=2).
-const parseQty = (qty) => {
-  if (qty === undefined) return MOCK_LIMITS.DEFAULT_QTY
+const parseQty = (rawQty) => {
+  if (rawQty === undefined) return MOCK_LIMITS.DEFAULT_QTY
+  // En el body JSON puede llegar como número; en la query siempre llega como texto.
+  const qty = typeof rawQty === 'number' ? String(rawQty) : rawQty
   if (typeof qty !== 'string' || !/^-?\d+$/.test(qty.trim())) {
     throw new InvalidMockQuantityError(qty, QTY_LIMITS)
   }
@@ -125,6 +127,7 @@ const parseEntity = (entity) => {
 
 const parseBoolean = (field, value) => {
   if (value === undefined) return false
+  if (typeof value === 'boolean') return value
   if (!BOOLEAN_VALUES.includes(value)) throw new InvalidFieldError(field, 'debe ser "true" o "false"', value)
   return value === 'true'
 }
@@ -352,9 +355,15 @@ export const mocksService = {
   },
 
   // POST: inserta datos de prueba en MongoDB.
-  seed: async (query = {}) => {
-    logger.debug(`Seed solicitado con parámetros ${JSON.stringify(query)}`)
-    const result = await runSeed(query)
+  // Los parámetros pueden llegar por query (?entity=all&qty=10) o en un body JSON
+  // ({ "entity": "all", "qty": 10 }). Si se envían en ambos, gana la query.
+  seed: async (query = {}, body = {}) => {
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      throw new InvalidFieldError('body', 'debe ser un objeto JSON con entity, qty, role o simulateFailure', body)
+    }
+    const params = { ...body, ...query }
+    logger.debug(`Seed solicitado con parámetros ${JSON.stringify(params)}`)
+    const result = await runSeed(params)
     logger.info(`Seed completado en MongoDB: ${JSON.stringify(result)}`)
     return result
   },

@@ -26,7 +26,7 @@ export const getMockDataset = asyncHandler(async (req, res) => {
 })
 
 export const seedMocks = asyncHandler(async (req, res) => {
-  sendSuccess(res, await mocksService.seed(req.query), HTTP_STATUS.CREATED)
+  sendSuccess(res, await mocksService.seed(req.query, req.body), HTTP_STATUS.CREATED)
 })
 
 export const clearMocks = asyncHandler(async (req, res) => {
