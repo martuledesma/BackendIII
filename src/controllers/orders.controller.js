@@ -14,3 +14,7 @@ export const getOrderById = asyncHandler(async (req, res) => {
 export const createOrder = asyncHandler(async (req, res) => {
   sendSuccess(res, await ordersService.createOrder(req.body), HTTP_STATUS.CREATED)
 })
+
+export const updateOrderStatus = asyncHandler(async (req, res) => {
+  sendSuccess(res, await ordersService.updateOrderStatus(req.params.oid, req.body))
+})

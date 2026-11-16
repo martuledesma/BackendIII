@@ -27,6 +27,26 @@ export const deliveriesRepository = {
       .lean()
   },
 
+  // Sin populate: lo usa la lógica de negocio para leer el estado y el repartidor.
+  getByOrderId: async (orderId) => {
+    if (!isValidId(orderId)) return null
+    return DeliveryModel.findOne({ order: orderId }).lean()
+  },
+
+  create: async (deliveryData) => {
+    const created = await DeliveryModel.create(deliveryData)
+    return deliveriesRepository.getById(created._id)
+  },
+
+  update: async (id, changes) => {
+    if (!isValidId(id)) return null
+    return DeliveryModel
+      .findByIdAndUpdate(id, changes, { new: true, runValidators: true })
+      .populate('order', ORDER_FIELDS)
+      .populate('courier', COURIER_FIELDS)
+      .lean()
+  },
+
   insertMany: async (deliveries) => {
     const inserted = await DeliveryModel.insertMany(deliveries, { ordered: false })
     return inserted.length

@@ -29,6 +29,14 @@ export const ordersRepository = {
     return ordersRepository.getById(created._id)
   },
 
+  updateStatus: async (id, status) => {
+    if (!isValidId(id)) return null
+    return OrderModel
+      .findByIdAndUpdate(id, { status }, { new: true, runValidators: true })
+      .populate('user', USER_PUBLIC_FIELDS)
+      .lean()
+  },
+
   insertMany: async (orders) => {
     const inserted = await OrderModel.insertMany(orders, { ordered: false })
     return inserted.length

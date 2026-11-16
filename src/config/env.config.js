@@ -1,14 +1,17 @@
 // Único archivo del proyecto que lee process.env.
-// Carga el .env, valida las variables críticas y exporta un objeto ya tipado y congelado.
+// Carga el archivo de entorno, valida las variables críticas y exporta un objeto ya tipado y congelado.
 import dotenv from 'dotenv'
 import { ENVIRONMENTS } from '../constants/index.js'
 
-dotenv.config()
+// Entorno de testing separado: `npm test` corre con NODE_ENV=test y carga .env.test
+// (con su propia base de datos). Cualquier otro caso usa .env.
+const ENV_FILE = process.env.NODE_ENV === ENVIRONMENTS.TEST ? '.env.test' : '.env'
+dotenv.config({ path: ENV_FILE })
 
 const REQUIRED_VARS = ['PORT', 'MONGODB_URI', 'NODE_ENV']
 
 const fail = (message) => {
-  throw new Error(`[config] ${message}. Revisá tu archivo .env (podés usar .env.example como guía).`)
+  throw new Error(`[config] ${message}. Revisá tu archivo ${ENV_FILE} (podés usar ${ENV_FILE}.example como guía).`)
 }
 
 const missing = REQUIRED_VARS.filter((key) => !process.env[key] || process.env[key].trim() === '')

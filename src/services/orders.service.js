@@ -1,7 +1,15 @@
 // Lógica de negocio de pedidos. No conoce Express ni Mongoose.
 import { ordersRepository } from '../repositories/orders.repository.js'
 import { usersRepository } from '../repositories/users.repository.js'
-import { ORDER_STATUS, ORDER_PRIORITY, USER_ROLES } from '../constants/index.js'
+import { deliveriesRepository } from '../repositories/deliveries.repository.js'
+import {
+  ORDER_STATUS,
+  ORDER_PRIORITY,
+  ORDER_STATUS_TRANSITIONS,
+  DELIVERY_STATUS,
+  DELIVERY_DEFAULTS,
+  USER_ROLES
+} from '../constants/index.js'
 import { logger } from '../config/logger.js'
 import {
   InvalidIdError,
@@ -11,9 +19,12 @@ import {
   InvalidPriorityError,
   InvalidQueryParamError,
   OrderNotFoundError,
-  UserNotFoundError
+  UserNotFoundError,
+  InvalidStatusTransitionError,
+  CourierNotAssignedError
 } from '../errors/index.js'
 import { isValidObjectId, findUnknownParams } from '../utils/validators.js'
+import { generateTrackingCode } from '../utils/tracking-code.js'
 
 const ENTITY = 'pedido'
 const VALID_STATUSES = Object.values(ORDER_STATUS)
@@ -53,6 +64,50 @@ const validateAddress = (address) => {
   return Object.fromEntries(ADDRESS_FIELDS.map((field) => [field, String(address[field]).trim()]))
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
+const findOrderOrFail = async (id) => {
+  if (!isValidObjectId(id)) throw new InvalidIdError(ENTITY, id)
+  const order = await ordersRepository.getById(id)
+  if (!order) throw new OrderNotFoundError(id)
+  return order
+}
+
+// Qué le pasa a la entrega cuando cambia el estado del pedido.
+// Mantiene la misma regla que el módulo de mocks: CONFIRMED tiene entrega (sin asignar al crearla),
+// IN_TRANSIT y DELIVERED tienen repartidor.
+const syncDelivery = async (order, nextStatus) => {
+  const delivery = await deliveriesRepository.getByOrderId(order._id)
+
+  switch (nextStatus) {
+    case ORDER_STATUS.CONFIRMED:
+      // Se crea la entrega, todavía sin repartidor.
+      await deliveriesRepository.create({
+        order: order._id,
+        courier: null,
+        status: DELIVERY_STATUS.UNASSIGNED,
+        trackingCode: generateTrackingCode(),
+        estimatedDeliveryDate: new Date(Date.now() + DELIVERY_DEFAULTS.ESTIMATED_DAYS * DAY_MS)
+      })
+      logger.warning(`Pedido ${order._id} confirmado: su entrega queda sin repartidor asignado`)
+      return
+
+    case ORDER_STATUS.IN_TRANSIT:
+      // Solo sale a reparto si la entrega ya tiene repartidor.
+      if (!delivery?.courier) throw new CourierNotAssignedError(String(order._id))
+      await deliveriesRepository.update(delivery._id, { status: DELIVERY_STATUS.IN_TRANSIT })
+      return
+
+    case ORDER_STATUS.DELIVERED:
+      await deliveriesRepository.update(delivery._id, { status: DELIVERY_STATUS.DELIVERED, deliveredAt: new Date() })
+      return
+
+    case ORDER_STATUS.CANCELLED:
+      // Si ya tenía entrega (pedido confirmado), la entrega queda fallida.
+      if (delivery) await deliveriesRepository.update(delivery._id, { status: DELIVERY_STATUS.FAILED })
+  }
+}
+
 export const ordersService = {
   getOrders: async (query = {}) => {
     const unknown = findUnknownParams(query, LIST_QUERY_PARAMS)
@@ -73,11 +128,23 @@ export const ordersService = {
     return ordersRepository.getAll(filters)
   },
 
-  getOrderById: async (id) => {
-    if (!isValidObjectId(id)) throw new InvalidIdError(ENTITY, id)
-    const order = await ordersRepository.getById(id)
-    if (!order) throw new OrderNotFoundError(id)
-    return order
+  getOrderById: async (id) => findOrderOrFail(id),
+
+  // Cambia el estado respetando ORDER_STATUS_TRANSITIONS y sincroniza la entrega.
+  updateOrderStatus: async (id, data = {}) => {
+    if (data.status === undefined) throw new MissingFieldsError(['status'])
+    if (!VALID_STATUSES.includes(data.status)) throw new InvalidStatusError(ENTITY, data.status, VALID_STATUSES)
+
+    const order = await findOrderOrFail(id)
+    const allowed = ORDER_STATUS_TRANSITIONS[order.status]
+    if (!allowed.includes(data.status)) {
+      throw new InvalidStatusTransitionError(ENTITY, order.status, data.status, allowed)
+    }
+
+    await syncDelivery(order, data.status)
+    const updated = await ordersRepository.updateStatus(id, data.status)
+    logger.info(`Pedido ${id}: estado ${order.status} → ${data.status}`)
+    return updated
   },
 
   // Un pedido nuevo siempre arranca en PENDING y con el total calculado por el sistema.

@@ -162,6 +162,26 @@ export class ProductCodeTakenError extends ConflictError {
   constructor (code) { super(ERRORS.PRODUCT_CODE_TAKEN, { message: `Ya existe un producto con el código ${code}`, details: { code } }) }
 }
 
+export class InvalidStatusTransitionError extends ConflictError {
+  constructor (entity, from, to, allowed) {
+    super(ERRORS.INVALID_STATUS_TRANSITION, {
+      message: allowed.length
+        ? `No se puede pasar un ${entity} de ${from} a ${to}. Desde ${from} solo se permite: ${allowed.join(', ')}`
+        : `No se puede pasar un ${entity} de ${from} a ${to}: ${from} es un estado final`,
+      details: { entity, from, to, allowed }
+    })
+  }
+}
+
+export class CourierNotAssignedError extends ConflictError {
+  constructor (orderId) {
+    super(ERRORS.COURIER_NOT_ASSIGNED, {
+      message: `El pedido ${orderId} no puede salir a reparto: su entrega no tiene repartidor asignado`,
+      details: { orderId }
+    })
+  }
+}
+
 export class LastAdminError extends ConflictError {
   constructor () { super(ERRORS.LAST_ADMIN) }
 }

@@ -39,6 +39,8 @@ const SAMPLE_ERRORS = Object.freeze({
   MOCK_MISSING_DEPENDENCIES: { message: 'No se puede generar orders: faltan clientes (rol USER) en la base. Cargalos primero con POST /api/mocks/seed?entity=users o usá entity=all', details: { entity: 'orders', missing: 'clientes (rol USER)' } },
   SEEDING_DISABLED: { message: 'La carga de datos de prueba está deshabilitada en el entorno "production"', details: { environment: 'production' } },
   MOCK_SEED_FAILED: { message: 'Falló la carga de all en MongoDB. Se revirtieron los registros del lote.', details: { entity: 'all', reason: 'Falla simulada después de insertar users (simulateFailure=true)', rollback: { done: true, eliminados: { users: 6 } } } },
+  INVALID_STATUS_TRANSITION: { message: 'No se puede pasar un pedido de PENDING a DELIVERED. Desde PENDING solo se permite: CONFIRMED, CANCELLED', details: { entity: 'pedido', from: 'PENDING', to: 'DELIVERED', allowed: ['CONFIRMED', 'CANCELLED'] } },
+  COURIER_NOT_ASSIGNED: { message: 'El pedido 6739f1c2a8b4e5d6f7a8b9c0 no puede salir a reparto: su entrega no tiene repartidor asignado', details: { orderId: '6739f1c2a8b4e5d6f7a8b9c0' } },
   ROUTE_NOT_FOUND: { message: 'Ruta no encontrada: GET /api/no-existe', details: { method: 'GET', path: '/api/no-existe' } }
 })
 

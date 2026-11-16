@@ -42,6 +42,22 @@ export const DELIVERY_STATUS = Object.freeze({
   FAILED: 'FAILED'
 })
 
+// Transiciones permitidas del estado de un pedido (PATCH /api/orders/:oid/status).
+// DELIVERED y CANCELLED son estados finales.
+export const ORDER_STATUS_TRANSITIONS = Object.freeze({
+  [ORDER_STATUS.PENDING]: Object.freeze([ORDER_STATUS.CONFIRMED, ORDER_STATUS.CANCELLED]),
+  [ORDER_STATUS.CONFIRMED]: Object.freeze([ORDER_STATUS.IN_TRANSIT, ORDER_STATUS.CANCELLED]),
+  [ORDER_STATUS.IN_TRANSIT]: Object.freeze([ORDER_STATUS.DELIVERED]),
+  [ORDER_STATUS.DELIVERED]: Object.freeze([]),
+  [ORDER_STATUS.CANCELLED]: Object.freeze([])
+})
+
+export const DELIVERY_DEFAULTS = Object.freeze({
+  ESTIMATED_DAYS: 3,
+  TRACKING_PREFIX: 'SN-',
+  TRACKING_LENGTH: 10
+})
+
 // Entidades que se pueden generar / insertar desde /api/mocks.
 // El valor es el nombre de la colección en MongoDB.
 export const MOCK_ENTITIES = Object.freeze({

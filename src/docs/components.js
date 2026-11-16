@@ -208,6 +208,21 @@ export const schemas = {
     }
   },
 
+  OrderStatusUpdateInput: {
+    type: 'object',
+    required: ['status'],
+    description: [
+      'Transiciones permitidas:',
+      `${ORDER_STATUS.PENDING} → ${ORDER_STATUS.CONFIRMED} | ${ORDER_STATUS.CANCELLED};`,
+      `${ORDER_STATUS.CONFIRMED} → ${ORDER_STATUS.IN_TRANSIT} | ${ORDER_STATUS.CANCELLED};`,
+      `${ORDER_STATUS.IN_TRANSIT} → ${ORDER_STATUS.DELIVERED}.`,
+      `${ORDER_STATUS.DELIVERED} y ${ORDER_STATUS.CANCELLED} son finales.`
+    ].join(' '),
+    properties: {
+      status: { type: 'string', enum: Object.values(ORDER_STATUS), example: ORDER_STATUS.CONFIRMED }
+    }
+  },
+
   // ---------- Entregas ----------
   OrderSummary: {
     type: 'object',

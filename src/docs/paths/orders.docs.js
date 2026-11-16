@@ -1,4 +1,4 @@
-import { ORDER_STATUS, ORDER_PRIORITY, USER_ROLES } from '../../constants/index.js'
+import { ORDER_STATUS, ORDER_PRIORITY, USER_ROLES, DELIVERY_STATUS } from '../../constants/index.js'
 import { errorResponses, successResponse, schemaRef, paramRef, arrayOf, jsonBody, SERVER_ERRORS } from '../helpers.js'
 
 const TAG = 'Orders'
@@ -45,6 +45,29 @@ export const ordersPaths = {
       responses: {
         200: successResponse('Pedido encontrado', schemaRef('Order')),
         ...errorResponses({ path: '/api/orders/6739f1c2a8b4e5d6f7a8b9c0', method: 'GET' }, 'INVALID_ID', 'ORDER_NOT_FOUND', ...SERVER_ERRORS)
+      }
+    }
+  },
+  '/api/orders/{oid}/status': {
+    parameters: [paramRef('OrderId')],
+    patch: {
+      tags: [TAG],
+      summary: 'Actualizar el estado de un pedido',
+      description: [
+        'Cambia el estado respetando las transiciones permitidas y actualiza la entrega asociada:',
+        `- **${ORDER_STATUS.PENDING} → ${ORDER_STATUS.CONFIRMED}**: se crea la entrega en ${DELIVERY_STATUS.UNASSIGNED} (sin repartidor).`,
+        `- **${ORDER_STATUS.CONFIRMED} → ${ORDER_STATUS.IN_TRANSIT}**: solo si la entrega ya tiene repartidor; la entrega pasa a ${DELIVERY_STATUS.IN_TRANSIT}.`,
+        `- **${ORDER_STATUS.IN_TRANSIT} → ${ORDER_STATUS.DELIVERED}**: la entrega pasa a ${DELIVERY_STATUS.DELIVERED} con deliveredAt.`,
+        `- **→ ${ORDER_STATUS.CANCELLED}** (desde ${ORDER_STATUS.PENDING} o ${ORDER_STATUS.CONFIRMED}): si tenía entrega, pasa a ${DELIVERY_STATUS.FAILED}.`,
+        '',
+        `${ORDER_STATUS.DELIVERED} y ${ORDER_STATUS.CANCELLED} son estados finales.`
+      ].join('\n'),
+      requestBody: jsonBody('OrderStatusUpdateInput', { status: ORDER_STATUS.CONFIRMED }),
+      responses: {
+        200: successResponse('Estado actualizado', schemaRef('Order')),
+        ...errorResponses({ path: '/api/orders/6739f1c2a8b4e5d6f7a8b9c0/status', method: 'PATCH' },
+          'MISSING_FIELDS', 'INVALID_STATUS', 'INVALID_ID', 'INVALID_JSON', 'ORDER_NOT_FOUND',
+          'INVALID_STATUS_TRANSITION', 'COURIER_NOT_ASSIGNED', ...SERVER_ERRORS)
       }
     }
   }

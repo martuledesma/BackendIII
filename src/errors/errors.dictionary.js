@@ -39,6 +39,8 @@ export const ERRORS = Object.freeze({
   DUPLICATE_RESOURCE: entry('DUPLICATE_RESOURCE', HTTP_STATUS.CONFLICT, 'Ya existe un registro con un valor que debe ser único'),
   EMAIL_ALREADY_REGISTERED: entry('EMAIL_ALREADY_REGISTERED', HTTP_STATUS.CONFLICT, 'El email ya está registrado'),
   PRODUCT_CODE_TAKEN: entry('PRODUCT_CODE_TAKEN', HTTP_STATUS.CONFLICT, 'Ya existe un producto con ese código'),
+  INVALID_STATUS_TRANSITION: entry('INVALID_STATUS_TRANSITION', HTTP_STATUS.CONFLICT, 'El cambio de estado no está permitido desde el estado actual'),
+  COURIER_NOT_ASSIGNED: entry('COURIER_NOT_ASSIGNED', HTTP_STATUS.CONFLICT, 'La entrega del pedido todavía no tiene un repartidor asignado'),
   LAST_ADMIN: entry('LAST_ADMIN', HTTP_STATUS.CONFLICT, 'No se puede quitar o eliminar al último administrador'),
   MOCK_MISSING_DEPENDENCIES: entry('MOCK_MISSING_DEPENDENCIES', HTTP_STATUS.CONFLICT, 'Faltan datos previos para generar esta entidad'),
 

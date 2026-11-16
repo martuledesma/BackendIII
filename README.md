@@ -7,6 +7,7 @@ API REST de ShipNow con **arquitectura por capas** (Router → Controller → Se
 - Módulo 3: manejo profesional de errores → ver [Manejo de errores](#manejo-de-errores).
 - Módulo 4: logging y monitoreo básico con Winston → ver [Logging](#logging-con-winston).
 - Módulo 5: documentación de la API con Swagger → ver [Documentación con Swagger](#documentación-con-swagger).
+- Módulo 6: testing funcional con Mocha, Chai y Supertest → ver [Testing](#testing).
 
 > 📘 **Documentación interactiva:** con el servidor levantado, entrá a **http://localhost:8080/api/docs**.
 
@@ -81,6 +82,7 @@ src/
 ├── app.js                   # configuración de Express
 └── server.js                # arranque (config → DB → listen), con logs fatales si falla
 logs/                        # archivos de log generados (ignorados por Git)
+tests/                       # tests funcionales (Mocha + Chai + Supertest), uno por módulo
 ```
 
 ## Endpoints
@@ -111,6 +113,7 @@ logs/                        # archivos de log generados (ignorados por Git)
 |---|---|---|
 | GET | `/api/orders` | Lista pedidos con el cliente populado. Filtros: `?status=` y `?priority=` |
 | GET | `/api/orders/:oid` | Obtiene un pedido |
+| PATCH | `/api/orders/:oid/status` | Cambia el estado (`{ "status": "CONFIRMED" }`) respetando las transiciones permitidas y actualiza la entrega asociada |
 | POST | `/api/orders` | Crea un pedido: `user` (id de un cliente con rol `USER`), `items` (`title`, `unitPrice`, `quantity`), `shippingAddress` (`street`, `city`, `province`, `zipCode`) y `priority` opcional. El estado inicial es `PENDING` y el total lo calcula el service. |
 | GET | `/api/deliveries` | Lista entregas con el pedido y el repartidor populados. Filtro: `?status=` |
 | GET | `/api/deliveries/:did` | Obtiene una entrega |
@@ -511,7 +514,7 @@ Los endpoints están agrupados por **tags**, uno por módulo:
 |---|---|
 | **Users** | `GET/POST /api/users`, `GET/PUT/DELETE /api/users/{uid}` |
 | **Products** | `GET/POST /api/products`, `GET/PUT/DELETE /api/products/{pid}` |
-| **Orders** | `GET/POST /api/orders`, `GET /api/orders/{oid}` |
+| **Orders** | `GET/POST /api/orders`, `GET /api/orders/{oid}`, `PATCH /api/orders/{oid}/status` |
 | **Deliveries** | `GET /api/deliveries`, `GET /api/deliveries/{did}` |
 | **Mocks** | `GET /api/mocks/users`, `/couriers`, `/orders`, `/deliveries`, `/dataset` · `POST /api/mocks/seed` · `DELETE /api/mocks/seed` |
 | **Logger** | `GET /api/loggerTest` (herramienta interna de validación, no es una funcionalidad del negocio) |
@@ -529,7 +532,7 @@ Cada endpoint indica el método, la ruta, una descripción, los parámetros de r
 - **La configuración está separada de las rutas.** `src/config/swagger.config.js` arma la especificación con la información general, el servidor local y los tags. La documentación de cada módulo vive en `src/docs/paths/`. `src/routes/docs.router.js` solo sirve la especificación.
 - **Los enums salen de las constantes del proyecto.** Roles, estados de pedido y de entrega, prioridades, vehículos, entidades de mocks y límites de `qty` se toman de `src/constants/index.js`, el mismo archivo que usan los modelos y los services.
 - **Los errores salen del diccionario real.** Cada respuesta de error se genera con `errorResponses(...códigos)` (`src/docs/helpers.js`), que toma el status y el mensaje de `src/errors/errors.dictionary.js`. Si se documenta un código que no existe, la app no arranca. Además, el status HTTP de cada código siempre es el real.
-- **Las rutas documentadas coinciden con las de Express.** Son las mismas 23 operaciones en los routers que en Swagger, con los mismos nombres de parámetros (`uid`, `pid`, `oid`, `did`, `qty`, `role`, `entity`, `status`, `priority`, etc.).
+- **Las rutas documentadas coinciden con las de Express.** Son las mismas 24 operaciones en los routers que en Swagger, con los mismos nombres de parámetros (`uid`, `pid`, `oid`, `did`, `qty`, `role`, `entity`, `status`, `priority`, etc.).
 
 ### Aclaraciones para probar desde Swagger
 
@@ -542,6 +545,81 @@ Cada endpoint indica el método, la ruta, una descripción, los parámetros de r
   - Un id inexistente con formato válido devuelve 404.
   - `simulateFailure = true` en el seed devuelve 500 `MOCK_SEED_FAILED`, con rollback.
 - **En producción** (`NODE_ENV=production`), el seed y el borrado de mocks responden 403 `SEEDING_DISABLED`, y `simulateFailure` deja de existir.
+
+## Testing
+
+Suite de **tests funcionales** que prueba los endpoints de punta a punta: petición HTTP → router → controller → service → repository → MongoDB, y la respuesta de vuelta.
+
+### Herramientas
+
+| Herramienta | Para qué |
+|---|---|
+| [Mocha](https://mochajs.org) | Organiza y ejecuta los tests (`describe`, `it`, hooks `before`/`after`/`beforeEach`) |
+| [Chai](https://www.chaijs.com) | Assertions (`expect`) sobre el status, el body y sus propiedades |
+| [Supertest](https://github.com/ladjs/supertest) | Hace las peticiones HTTP contra la app de Express **sin levantar el servidor** |
+
+La app de Express está separada del arranque: `src/app.js` exporta la app y `src/server.js` es el único que conecta a MongoDB y hace `listen`. Los tests importan `src/app.js` y Supertest abre y cierra un puerto efímero por cada petición.
+
+### Entorno de testing (separado del de desarrollo)
+
+`npm test` corre con `NODE_ENV=test`. En ese caso `src/config/env.config.js` carga **`.env.test`** en lugar de `.env`, con su propia base de datos:
+
+| Variable | Valor en `.env.test` | Para qué |
+|---|---|---|
+| `NODE_ENV` | `test` | Activa el entorno de testing; el logger casi no escribe en consola |
+| `PORT` | `8081` | Obligatoria por la validación de entorno. Los tests no la usan, porque Supertest no abre ese puerto. |
+| `MONGODB_URI` | URI de una base **distinta** a la de desarrollo, cuyo nombre termine en `_test` | Por ejemplo `mongodb+srv://usuario:pass@cluster0.xxxxx.mongodb.net/shipnow_test?retryWrites=true&w=majority` |
+
+**Sí se requiere una base de datos de testing.** Puede estar en el mismo cluster de Atlas que la de desarrollo: alcanza con cambiar el nombre de la base en la URI (`/shipnow` → `/shipnow_test`). MongoDB la crea sola la primera vez.
+
+Por seguridad, los tests **se niegan a correr** si el nombre de la base no termina en `_test`, porque vacían la base al empezar y al terminar.
+
+Para configurarlo:
+
+```bash
+cp .env.test.example .env.test
+# completá MONGODB_URI apuntando a la base *_test
+```
+
+`.env.test` no se sube al repo (está en `.gitignore`); solo se versiona `.env.test.example`.
+
+### Cómo ejecutarlos
+
+```bash
+npm install     # instala también mocha, chai y supertest (devDependencies)
+npm test
+```
+
+La configuración de Mocha está en `.mocharc.json`: archivos `tests/**/*.test.js`, hooks globales en `tests/setup.js`, timeout de 20 s y reporter `spec`. En Windows, el script `NODE_ENV=test mocha` necesita Git Bash o WSL.
+
+### Qué se cubre
+
+Los tests están en `tests/`, agrupados por módulo:
+
+| Archivo | Casos de éxito | Casos de error |
+|---|---|---|
+| `users.test.js` | Listar usuarios (estructura, sin contraseña), filtrar por rol, obtener por id, crear, actualizar, borrado lógico | `INVALID_ROLE`, `INVALID_QUERY_PARAM`, 404 `USER_NOT_FOUND`, `INVALID_ID`, `MISSING_FIELDS`, `INVALID_FIELD`, `COURIER_PROFILE_REQUIRED`, 409 `EMAIL_ALREADY_REGISTERED`, `NO_UPDATABLE_FIELDS` |
+| `orders.test.js` | Crear un pedido válido (PENDING, total calculado, cliente populado), listar, filtrar por estado y prioridad, consultar por id, **actualizar el estado**: PENDING → CONFIRMED (crea la entrega), CONFIRMED → IN_TRANSIT → DELIVERED, cancelación | `MISSING_FIELDS` (datos incompletos), `INVALID_FIELD`, `INVALID_PRIORITY`, 404 `USER_NOT_FOUND`, `INVALID_JSON`, **`INVALID_STATUS`** (estado inválido), 404 `ORDER_NOT_FOUND`, `INVALID_ID`, 409 `INVALID_STATUS_TRANSITION`, 409 `COURIER_NOT_ASSIGNED` |
+| `deliveries.test.js` | Listar con pedido y repartidor populados y estados coherentes, filtrar por estado, obtener por id | `INVALID_STATUS`, 404 `DELIVERY_NOT_FOUND`, `INVALID_ID` |
+| `mocks.test.js` | Generar users, couriers, orders, deliveries y dataset con estructura y relaciones válidas, sin guardar nada. Seed de users, all (por query y por body) y orders. Borrado que conserva los datos reales. | **Cantidades inválidas**: `-5` y `0` → `MOCK_NEGATIVE_QUANTITY`; `abc`, `2.5` y repetido → `MOCK_INVALID_QUANTITY`; `101` → `MOCK_QUANTITY_EXCEEDED`. También `INVALID_ROLE`, `INVALID_QUERY_PARAM`, `MOCK_INVALID_ENTITY`, 409 `MOCK_MISSING_DEPENDENCIES` y 500 `MOCK_SEED_FAILED` con rollback verificado en la base. |
+| `logger.test.js` | `GET /api/loggerTest`: los 6 niveles, el entorno `test`, qué nivel va a cada salida, y que `logs/error.log` tenga solo `error` y `fatal` | — |
+| `docs.test.js` | Swagger UI en `/api/docs/`, redirección de `/api/docs`, `/api/docs.json` con la info, los tags y los schemas | **Coherencia con Swagger**: cada GET por id documentado con 404 se llama con un id inexistente y tiene que devolver el código documentado. Lo mismo con el 400 `INVALID_ID` y con los errores de cantidad de los 5 GET de mocks. |
+| `products.test.js` | Crear (estado según stock), listar con y sin los productos sin stock | `MISSING_FIELDS`, 409 `PRODUCT_CODE_TAKEN`, 404 `PRODUCT_NOT_FOUND` |
+| `errors.test.js` | — | 404 `ROUTE_NOT_FOUND` (ruta inexistente), `INVALID_JSON`, misma estructura en todos los errores |
+
+**Cada test valida el status y la forma de la respuesta**, no solo que "responde":
+- Los helpers `expectSuccess` y `expectError` (`tests/helpers/api.helper.js`) comprueban el status HTTP, el `Content-Type` y el formato `{ status, payload }` o `{ status, error }`.
+- En los errores verifican el código del diccionario, el `message`, que `statusCode` coincida con el status HTTP, `path`, `method` y `timestamp`.
+- Además, cada test revisa las propiedades importantes del caso: total calculado, roles, relaciones, `details` del error, etc.
+
+### Datos de prueba y limpieza
+
+- **Datos controlados y descartables.** Se crean dentro de cada grupo, por la API (`tests/helpers/fixtures.js`: clientes, repartidores, pedidos, productos) o con el módulo de mocks. Los emails y los códigos son únicos en cada corrida. Nunca se usan datos cargados a mano.
+- **Limpieza.**
+  - `tests/setup.js` (hooks globales) vacía la base `_test` al empezar y al terminar la suite.
+  - Además, cada archivo vacía la base en `before()` y `after()`.
+  - `mocks.test.js` lo hace en `beforeEach()`, y `orders.test.js` crea un pedido nuevo en `beforeEach()` para los tests de estado.
+- **Independientes del orden y repetibles.** Ningún grupo depende de lo que dejó otro, y la suite se puede correr dos veces seguidas sin borrar nada a mano.
 
 ## Por qué separé la lógica así entre Service y Repository
 
