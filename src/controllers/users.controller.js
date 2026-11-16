@@ -1,48 +1,27 @@
-// Única puerta de entrada HTTP para usuarios: lee req, llama al service y arma la respuesta.
-// No importa Mongoose ni repositorios.
+// Única puerta de entrada HTTP para usuarios: lee req, llama al service y responde.
+// No arma respuestas de error ni importa Mongoose: cualquier error llega al middleware global vía asyncHandler.
 import { usersService } from '../services/users.service.js'
-import { HTTP_STATUS, RESPONSE_STATUS } from '../constants/index.js'
+import { HTTP_STATUS } from '../constants/index.js'
+import { asyncHandler } from '../utils/async-handler.js'
+import { sendSuccess, sendNoContent } from '../utils/response.js'
 
-const ok = (res, payload, status = HTTP_STATUS.OK) =>
-  res.status(status).json({ status: RESPONSE_STATUS.SUCCESS, payload })
+export const getUsers = asyncHandler(async (req, res) => {
+  sendSuccess(res, await usersService.getUsers(req.query))
+})
 
-export const getUsers = async (req, res, next) => {
-  try {
-    ok(res, await usersService.getUsers({ role: req.query.role }))
-  } catch (error) {
-    next(error)
-  }
-}
+export const getUserById = asyncHandler(async (req, res) => {
+  sendSuccess(res, await usersService.getUserById(req.params.uid))
+})
 
-export const getUserById = async (req, res, next) => {
-  try {
-    ok(res, await usersService.getUserById(req.params.uid))
-  } catch (error) {
-    next(error)
-  }
-}
+export const createUser = asyncHandler(async (req, res) => {
+  sendSuccess(res, await usersService.createUser(req.body), HTTP_STATUS.CREATED)
+})
 
-export const createUser = async (req, res, next) => {
-  try {
-    ok(res, await usersService.createUser(req.body), HTTP_STATUS.CREATED)
-  } catch (error) {
-    next(error)
-  }
-}
+export const updateUser = asyncHandler(async (req, res) => {
+  sendSuccess(res, await usersService.updateUser(req.params.uid, req.body))
+})
 
-export const updateUser = async (req, res, next) => {
-  try {
-    ok(res, await usersService.updateUser(req.params.uid, req.body))
-  } catch (error) {
-    next(error)
-  }
-}
-
-export const deleteUser = async (req, res, next) => {
-  try {
-    await usersService.deleteUser(req.params.uid)
-    res.status(HTTP_STATUS.NO_CONTENT).end()
-  } catch (error) {
-    next(error)
-  }
-}
+export const deleteUser = asyncHandler(async (req, res) => {
+  await usersService.deleteUser(req.params.uid)
+  sendNoContent(res)
+})

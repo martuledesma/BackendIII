@@ -4,6 +4,7 @@ API REST de ShipNow con **arquitectura por capas** (Router → Controller → Se
 
 - Módulo 1: estructura por capas y configuración de entorno.
 - Módulo 2: mocking y carga de datos de prueba → ver [Módulo de mocking](#módulo-de-mocking-apimocks).
+- Módulo 3: manejo profesional de errores → ver [Manejo de errores](#manejo-de-errores).
 
 ## Requisitos
 
@@ -60,8 +61,12 @@ src/
 ├── repositories/            # único lugar que conoce Mongoose
 ├── models/                  # esquemas: product, user, order, delivery
 ├── routes/                  # path → método del controller (incluye mocks.router.js)
-├── middlewares/             # manejo centralizado de errores y 404
-├── utils/                   # HttpError, hash de contraseñas, generadores faker, alias de constantes
+├── errors/
+│   ├── errors.dictionary.js # diccionario: code, statusCode y mensaje de cada error
+│   ├── custom-errors.js     # AppError y errores del dominio (UserNotFoundError, InvalidMockQuantityError...)
+│   └── index.js
+├── middlewares/             # middleware global de errores y 404
+├── utils/                   # asyncHandler, respuestas de éxito, validadores, hash, generadores faker
 ├── app.js                   # configuración de Express
 └── server.js                # arranque (config → DB → listen)
 ```
@@ -99,7 +104,7 @@ src/
 
 Sirven para verificar en la base las relaciones de los datos cargados con el seed.
 
-Formato de respuesta: `{ "status": "success", "payload": ... }` o `{ "status": "error", "error": "mensaje" }`.
+Las respuestas exitosas tienen el formato `{ "status": "success", "payload": ... }`. El formato de los errores está explicado en [Manejo de errores](#manejo-de-errores).
 
 ## Módulo de mocking (`/api/mocks`)
 
@@ -182,9 +187,11 @@ Sin `entity`, el seed carga `users`. Ejemplo — `POST /api/mocks/seed?qty=10`:
 
 El total de entregas varía porque depende de los estados que salgan sorteados para los pedidos.
 
-**Controles de la carga:**
-- `qty` se valida (un entero de 1 a 100); si no cumple, la API responde 400.
+**Controles de la carga** (los códigos de error de cada caso están en [Manejo de errores](#manejo-de-errores)):
+- `qty` tiene que ser un entero entre 1 y 100. Se rechazan el texto, los decimales, el cero, los negativos y los valores repetidos.
+- Cada endpoint acepta solo sus parámetros: `?foo=1` o `role` con una `entity` distinta de `users` responden 400.
 - `entity=orders` y `entity=deliveries` necesitan clientes en la base. Si no hay, la API responde 409 con un mensaje que indica qué seed correr primero.
+- Si falla la inserción en MongoDB a mitad de un lote, se **revierten** los documentos de ese lote y la API responde 500 con `MOCK_SEED_FAILED`. Los datos que ya estaban en la base no se tocan.
 - Si no hay repartidores cargados, solo se generan pedidos que no necesitan uno: `PENDING`, `CANCELLED` o `CONFIRMED` con la entrega `UNASSIGNED`.
 - Todos los documentos generados llevan `isMock: true`. Por eso `DELETE /api/mocks/seed` puede limpiarlos sin tocar los datos reales.
 - Con `NODE_ENV=production`, seed y delete responden 403.
@@ -237,6 +244,118 @@ curl -X DELETE "http://localhost:8080/api/mocks/seed"
 | Repository | `repositories/*.repository.js` | `insertMany`, `getIdsByRole` y `deleteMocks`: el único lugar que habla con Mongoose |
 | Model | `models/*.model.js` | Esquemas con los `enum` tomados de las constantes |
 
+## Manejo de errores
+
+Todos los errores de la API pasan por una sola capa:
+
+```
+service detecta el problema → throw new UserNotFoundError(id)
+controller (asyncHandler)   → next(error)
+middleware global           → arma la respuesta HTTP
+```
+
+- **Diccionario** (`src/errors/errors.dictionary.js`): cada error tiene un `code` estable, el `statusCode` HTTP y un mensaje por defecto. Es la única fuente de verdad de los códigos.
+- **Errores personalizados** (`src/errors/custom-errors.js`): todos heredan de `AppError` y se construyen a partir de una entrada del diccionario. Hay categorías (`ValidationError`, `NotFoundError`, `ConflictError`, `ForbiddenError`, `MockError`) y errores concretos del dominio: `UserNotFoundError`, `OrderNotFoundError`, `InvalidStatusError`, `InvalidMockQuantityError`, `MockSeedError`, etc.
+- **Middleware global** (`src/middlewares/error.middleware.js`): es el **único** lugar que responde errores. También traduce los errores de librerías: JSON mal formado, `CastError` y `ValidationError` de Mongoose, clave duplicada `11000` y fallas de conexión a MongoDB. Cualquier otro error inesperado responde `INTERNAL_ERROR`.
+- **`asyncHandler`** (`src/utils/async-handler.js`): envuelve cada controller y deriva al middleware cualquier error, también los de funciones async. Por eso los controllers no tienen `try/catch` ni `res.status(4xx)`.
+- **Rutas inexistentes**: `notFoundHandler` no responde por su cuenta; lanza `RouteNotFoundError` y el middleware lo responde con el mismo formato.
+
+### Estructura de la respuesta de error
+
+Todas las respuestas de error tienen exactamente la misma forma:
+
+```json
+{
+  "status": "error",
+  "error": {
+    "code": "MOCK_NEGATIVE_QUANTITY",
+    "message": "La cantidad de mocks no puede ser negativa ni cero: se recibió \"-5\" y debe ser un entero entre 1 y 100",
+    "statusCode": 400,
+    "details": { "field": "qty", "value": "-5", "min": 1, "max": 100 },
+    "path": "/api/mocks/users?qty=-5",
+    "method": "GET",
+    "timestamp": "2026-11-16T22:10:00.000Z"
+  }
+}
+```
+
+| Campo | Para qué sirve |
+|---|---|
+| `code` | Identificador estable del error. Es lo que debería usar el front o el cliente para decidir qué hacer. |
+| `message` | Descripción legible en español |
+| `statusCode` | El mismo código HTTP de la respuesta |
+| `details` | Datos extra del caso (campo, valor recibido, valores permitidos) o `null` |
+| `path`, `method`, `timestamp` | Contexto de la petición, útil para depurar o loguear |
+
+En `NODE_ENV=production`, los errores 500 ocultan `details` y muestran solo el mensaje genérico del diccionario, para no exponer detalles internos.
+
+### Códigos de error
+
+| Código | HTTP | Cuándo aparece |
+|---|---|---|
+| `VALIDATION_ERROR` | 400 | El documento no cumple el esquema de Mongoose |
+| `MISSING_FIELDS` | 400 | Faltan campos obligatorios en el body |
+| `INVALID_FIELD` | 400 | Un campo tiene un valor inválido (precio negativo, email mal formado, etc.) |
+| `NO_UPDATABLE_FIELDS` | 400 | Un PUT sin campos que se puedan modificar |
+| `INVALID_ID` | 400 | El id no es un ObjectId válido |
+| `INVALID_JSON` | 400 | El body no es un JSON válido |
+| `INVALID_QUERY_PARAM` | 400 | Se envió un parámetro de query que el endpoint no acepta |
+| `INVALID_ROLE` / `INVALID_STATUS` / `INVALID_PRIORITY` | 400 | El valor no está en `USER_ROLES`, en `*_STATUS` o en `ORDER_PRIORITY` |
+| `COURIER_PROFILE_REQUIRED` | 400 | Se creó o modificó un `COURIER` sin un vehículo válido |
+| `MOCK_INVALID_QUANTITY` | 400 | `qty` no es un entero (`abc`, `2.5`, repetido) |
+| `MOCK_NEGATIVE_QUANTITY` | 400 | `qty` es negativo o cero |
+| `MOCK_QUANTITY_EXCEEDED` | 400 | `qty` es mayor que 100 |
+| `MOCK_INVALID_ENTITY` | 400 | La `entity` del seed no existe |
+| `SEEDING_DISABLED` | 403 | Se intentó un seed o un delete en producción |
+| `ROUTE_NOT_FOUND` | 404 | La ruta no existe |
+| `PRODUCT_NOT_FOUND` / `USER_NOT_FOUND` / `ORDER_NOT_FOUND` / `DELIVERY_NOT_FOUND` | 404 | El recurso no existe |
+| `EMAIL_ALREADY_REGISTERED` / `PRODUCT_CODE_TAKEN` / `DUPLICATE_RESOURCE` | 409 | Se repitió un valor que tiene que ser único |
+| `LAST_ADMIN` | 409 | Se intentó quitar o eliminar al último `ADMIN` |
+| `MOCK_MISSING_DEPENDENCIES` | 409 | Un seed de pedidos o entregas sin clientes en la base |
+| `MOCK_GENERATION_FAILED` | 500 | Falló la generación de datos en memoria |
+| `MOCK_SEED_FAILED` | 500 | Falló la inserción en MongoDB; el lote se revierte |
+| `DATABASE_ERROR` | 500 | MongoDB no responde o devuelve un error |
+| `INTERNAL_ERROR` | 500 | Error inesperado |
+
+### Cómo probar los casos inválidos
+
+Con la app corriendo (`npm run dev`), en otra terminal:
+
+```bash
+# --- Mocks: cantidad inválida ---
+curl "http://localhost:8080/api/mocks/users?qty=-5"        # 400 MOCK_NEGATIVE_QUANTITY
+curl "http://localhost:8080/api/mocks/users?qty=0"         # 400 MOCK_NEGATIVE_QUANTITY
+curl "http://localhost:8080/api/mocks/users?qty=abc"       # 400 MOCK_INVALID_QUANTITY
+curl "http://localhost:8080/api/mocks/orders?qty=2.5"      # 400 MOCK_INVALID_QUANTITY
+curl "http://localhost:8080/api/mocks/users?qty=500"       # 400 MOCK_QUANTITY_EXCEEDED
+
+# --- Mocks: datos incorrectos ---
+curl "http://localhost:8080/api/mocks/users?role=cliente"                      # 400 INVALID_ROLE
+curl "http://localhost:8080/api/mocks/couriers?color=rojo"                     # 400 INVALID_QUERY_PARAM
+curl -X POST "http://localhost:8080/api/mocks/seed?entity=pizzas"              # 400 MOCK_INVALID_ENTITY
+curl -X POST "http://localhost:8080/api/mocks/seed?entity=orders&role=USER"    # 400 INVALID_QUERY_PARAM
+
+# --- Mocks: falta de datos previos (con la base sin clientes) ---
+curl -X DELETE "http://localhost:8080/api/mocks/seed"
+curl -X POST "http://localhost:8080/api/mocks/seed?entity=orders"              # 409 MOCK_MISSING_DEPENDENCIES
+
+# --- Mocks: falla durante la carga en MongoDB, con rollback ---
+curl -X POST "http://localhost:8080/api/mocks/seed?entity=all&qty=10&simulateFailure=true"   # 500 MOCK_SEED_FAILED
+curl "http://localhost:8080/api/orders"     # sigue igual: el lote fallido se revirtió
+
+# --- Resto de la API ---
+curl "http://localhost:8080/api/no-existe"                    # 404 ROUTE_NOT_FOUND
+curl "http://localhost:8080/api/users/123"                    # 400 INVALID_ID
+curl "http://localhost:8080/api/users/6739f1c2a8b4e5d6f7a8b9c0"   # 404 USER_NOT_FOUND
+curl "http://localhost:8080/api/orders?status=PERDIDO"        # 400 INVALID_STATUS
+curl "http://localhost:8080/api/orders?priority=YA"           # 400 INVALID_PRIORITY
+curl -X POST http://localhost:8080/api/products -H "Content-Type: application/json" -d '{"title":"x"}'          # 400 MISSING_FIELDS
+curl -X POST http://localhost:8080/api/products -H "Content-Type: application/json" -d '{"title":'              # 400 INVALID_JSON
+curl -X POST http://localhost:8080/api/users -H "Content-Type: application/json" -d '{"firstName":"A","lastName":"B","email":"a@b.com","password":"12345678","role":"COURIER"}'   # 400 COURIER_PROFILE_REQUIRED
+```
+
+`simulateFailure=true` existe solo fuera de producción. Provoca una falla después de insertar la primera colección del lote, para que se pueda comprobar que el rollback deja la base como estaba. En producción ese parámetro no existe y la API lo rechaza con `INVALID_QUERY_PARAM`.
+
 ## Por qué separé la lógica así entre Service y Repository
 
 El criterio fue: **el Repository sabe *cómo* se guardan y se buscan los datos; el Service sabe *qué* se puede hacer con ellos.**
@@ -257,7 +376,7 @@ Con esto, el Repository no es un simple "pasamanos" de `model.find()`. Si mañan
 - **Whitelist de campos editables**: en un `PUT` no se pueden pisar `code`, `status`, `email` ni `isDeleted`.
 - **Seguridad**: hashea la contraseña antes de guardarla e impide quitar o eliminar al último `ADMIN`.
 
-El Service no recibe `req` ni `res`, así que se puede testear de forma aislada, sin levantar Express. Los errores de negocio se lanzan como `HttpError` y los traduce el middleware centralizado. El **Controller**, por su parte, solo traduce HTTP: lee parámetros y body, llama al Service y elige el status code. Nunca importa Mongoose ni un repositorio.
+El Service no recibe `req` ni `res`, así que se puede testear de forma aislada, sin levantar Express. Los errores de negocio se lanzan como errores del dominio (`src/errors/`) y los traduce el middleware global. El **Controller**, por su parte, solo traduce HTTP: lee parámetros y body, llama al Service y elige el status code. Nunca importa Mongoose ni un repositorio.
 
 ## Constantes
 

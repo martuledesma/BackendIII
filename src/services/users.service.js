@@ -1,29 +1,40 @@
 // Lógica de negocio de usuarios. No conoce Express (ni req ni res) ni Mongoose.
+// Detecta las reglas inválidas y lanza errores del dominio; no arma respuestas HTTP.
 import { usersRepository } from '../repositories/users.repository.js'
 import { USER_ROLES, VEHICLE_TYPES } from '../constants/index.js'
-import { HttpError } from '../utils/http-error.js'
+import {
+  MissingFieldsError,
+  InvalidFieldError,
+  InvalidIdError,
+  InvalidRoleError,
+  InvalidQueryParamError,
+  NoUpdatableFieldsError,
+  CourierProfileRequiredError,
+  UserNotFoundError,
+  EmailAlreadyRegisteredError,
+  LastAdminError
+} from '../errors/index.js'
 import { hashPassword } from '../utils/password.js'
+import { isValidObjectId, findUnknownParams } from '../utils/validators.js'
 
+const ENTITY = 'usuario'
 const REQUIRED_FIELDS = ['firstName', 'lastName', 'email', 'password']
 const UPDATABLE_FIELDS = ['firstName', 'lastName', 'phone', 'role', 'courierProfile']
+const LIST_QUERY_PARAMS = ['role']
 const MIN_PASSWORD_LENGTH = 8
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const VALID_ROLES = Object.values(USER_ROLES)
 const VALID_VEHICLES = Object.values(VEHICLE_TYPES)
 
 const validateRole = (role) => {
-  if (role !== undefined && !VALID_ROLES.includes(role)) {
-    throw HttpError.badRequest(`Rol inválido. Valores permitidos: ${VALID_ROLES.join(', ')}`)
-  }
+  if (role !== undefined && !VALID_ROLES.includes(role)) throw new InvalidRoleError(role, VALID_ROLES)
 }
 
 // Regla: un repartidor (COURIER) debe tener un vehículo válido; los demás roles no tienen perfil de repartidor.
 const resolveCourierProfile = (role, courierProfile) => {
   if (role !== USER_ROLES.COURIER) return null
   if (!courierProfile || !VALID_VEHICLES.includes(courierProfile.vehicle)) {
-    throw HttpError.badRequest(
-      `Un usuario ${USER_ROLES.COURIER} necesita courierProfile.vehicle con uno de: ${VALID_VEHICLES.join(', ')}`
-    )
+    throw new CourierProfileRequiredError(VALID_VEHICLES)
   }
   return {
     vehicle: courierProfile.vehicle,
@@ -33,32 +44,38 @@ const resolveCourierProfile = (role, courierProfile) => {
 }
 
 const findOrFail = async (id) => {
+  if (!isValidObjectId(id)) throw new InvalidIdError(ENTITY, id)
   const user = await usersRepository.getById(id)
-  if (!user) throw HttpError.notFound(`No existe un usuario con id ${id}`)
+  if (!user) throw new UserNotFoundError(id)
   return user
 }
 
+const ensureNotLastAdmin = async () => {
+  const admins = await usersRepository.getIdsByRole(USER_ROLES.ADMIN)
+  if (admins.length <= 1) throw new LastAdminError()
+}
+
 export const usersService = {
-  getUsers: async ({ role } = {}) => {
-    validateRole(role)
-    return usersRepository.getAll(role ? { role } : {})
+  getUsers: async (query = {}) => {
+    const unknown = findUnknownParams(query, LIST_QUERY_PARAMS)
+    if (unknown.length) throw new InvalidQueryParamError(unknown, LIST_QUERY_PARAMS)
+    validateRole(query.role)
+    return usersRepository.getAll(query.role ? { role: query.role } : {})
   },
 
   getUserById: async (id) => findOrFail(id),
 
   createUser: async (data = {}) => {
     const missing = REQUIRED_FIELDS.filter((field) => !data[field])
-    if (missing.length > 0) {
-      throw HttpError.badRequest(`Faltan campos obligatorios: ${missing.join(', ')}`)
-    }
-    if (!EMAIL_REGEX.test(data.email)) throw HttpError.badRequest('El email no tiene un formato válido')
-    if (data.password.length < MIN_PASSWORD_LENGTH) {
-      throw HttpError.badRequest(`La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`)
+    if (missing.length > 0) throw new MissingFieldsError(missing)
+    if (!EMAIL_REGEX.test(data.email)) throw new InvalidFieldError('email', 'no tiene un formato válido', data.email)
+    if (typeof data.password !== 'string' || data.password.length < MIN_PASSWORD_LENGTH) {
+      throw new InvalidFieldError('password', `debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`)
     }
     validateRole(data.role)
 
     const existing = await usersRepository.getByEmail(data.email)
-    if (existing) throw HttpError.conflict(`El email ${data.email} ya está registrado`)
+    if (existing) throw new EmailAlreadyRegisteredError(data.email)
 
     const role = data.role ?? USER_ROLES.USER
     return usersRepository.create({
@@ -78,13 +95,11 @@ export const usersService = {
     const changes = Object.fromEntries(
       Object.entries(data).filter(([key]) => UPDATABLE_FIELDS.includes(key))
     )
-    if (Object.keys(changes).length === 0) {
-      throw HttpError.badRequest(`No hay campos válidos para actualizar. Permitidos: ${UPDATABLE_FIELDS.join(', ')}`)
-    }
+    if (Object.keys(changes).length === 0) throw new NoUpdatableFieldsError(UPDATABLE_FIELDS)
     validateRole(changes.role)
 
     // Regla de negocio: no se puede quitar el rol al último administrador.
-    if (current.role === USER_ROLES.ADMIN && changes.role === USER_ROLES.USER) {
+    if (current.role === USER_ROLES.ADMIN && changes.role && changes.role !== USER_ROLES.ADMIN) {
       await ensureNotLastAdmin()
     }
 
@@ -101,12 +116,5 @@ export const usersService = {
     const current = await findOrFail(id)
     if (current.role === USER_ROLES.ADMIN) await ensureNotLastAdmin()
     return usersRepository.softDelete(id)
-  }
-}
-
-async function ensureNotLastAdmin () {
-  const admins = await usersRepository.getAll({ role: USER_ROLES.ADMIN })
-  if (admins.length <= 1) {
-    throw HttpError.conflict('No se puede quitar o eliminar al último usuario ADMIN')
   }
 }

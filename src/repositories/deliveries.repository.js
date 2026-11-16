@@ -35,5 +35,11 @@ export const deliveriesRepository = {
   deleteMocks: async () => {
     const { deletedCount } = await DeliveryModel.deleteMany({ isMock: true })
     return deletedCount
+  },
+
+  // Rollback de un lote de mocks: borra solo los documentos con esos _id y marcados como mock.
+  deleteByIds: async (ids) => {
+    const { deletedCount } = await DeliveryModel.deleteMany({ _id: { $in: ids }, isMock: true })
+    return deletedCount
   }
 }

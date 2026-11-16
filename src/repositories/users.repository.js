@@ -76,5 +76,11 @@ export const usersRepository = {
   deleteMocks: async () => {
     const { deletedCount } = await UserModel.deleteMany({ isMock: true })
     return deletedCount
+  },
+
+  // Rollback de un lote de mocks: borra solo los documentos con esos _id y marcados como mock.
+  deleteByIds: async (ids) => {
+    const { deletedCount } = await UserModel.deleteMany({ _id: { $in: ids }, isMock: true })
+    return deletedCount
   }
 }
