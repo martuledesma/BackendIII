@@ -20,6 +20,12 @@ export const errorHandler = (err, req, res, next) => {
     message = 'El cuerpo de la petición no es un JSON válido'
   }
 
+  // Clave única duplicada en MongoDB (email, code, trackingCode...)
+  if (err.code === 11000 || err.writeErrors?.some((e) => e.code === 11000)) {
+    statusCode = HTTP_STATUS.CONFLICT
+    message = 'Ya existe un registro con un valor único repetido (por ejemplo, un email)'
+  }
+
   if (statusCode >= HTTP_STATUS.INTERNAL_SERVER_ERROR) {
     console.error('[error]', err)
     if (config.isProduction) message = 'Error interno del servidor'

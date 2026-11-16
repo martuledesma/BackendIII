@@ -1,13 +1,66 @@
 // Valores inmutables del dominio. Object.freeze evita que se modifiquen en tiempo de ejecución.
 
+// USER = cliente que hace pedidos. COURIER = repartidor.
 export const USER_ROLES = Object.freeze({
   ADMIN: 'ADMIN',
-  USER: 'USER'
+  USER: 'USER',
+  COURIER: 'COURIER'
+})
+
+export const VEHICLE_TYPES = Object.freeze({
+  BIKE: 'BIKE',
+  MOTORCYCLE: 'MOTORCYCLE',
+  CAR: 'CAR',
+  VAN: 'VAN'
 })
 
 export const PRODUCT_STATUS = Object.freeze({
   AVAILABLE: 'AVAILABLE',
   OUT_OF_STOCK: 'OUT_OF_STOCK'
+})
+
+export const ORDER_STATUS = Object.freeze({
+  PENDING: 'PENDING',
+  CONFIRMED: 'CONFIRMED',
+  IN_TRANSIT: 'IN_TRANSIT',
+  DELIVERED: 'DELIVERED',
+  CANCELLED: 'CANCELLED'
+})
+
+export const ORDER_PRIORITY = Object.freeze({
+  LOW: 'LOW',
+  NORMAL: 'NORMAL',
+  HIGH: 'HIGH',
+  URGENT: 'URGENT'
+})
+
+export const DELIVERY_STATUS = Object.freeze({
+  UNASSIGNED: 'UNASSIGNED',
+  ASSIGNED: 'ASSIGNED',
+  IN_TRANSIT: 'IN_TRANSIT',
+  DELIVERED: 'DELIVERED',
+  FAILED: 'FAILED'
+})
+
+// Entidades que se pueden generar / insertar desde /api/mocks.
+// El valor es el nombre de la colección en MongoDB.
+export const MOCK_ENTITIES = Object.freeze({
+  USERS: 'users',
+  COURIERS: 'couriers',
+  ORDERS: 'orders',
+  DELIVERIES: 'deliveries',
+  ALL: 'all'
+})
+
+export const MOCK_LIMITS = Object.freeze({
+  DEFAULT_QTY: 10,
+  MAX_QTY: 100
+})
+
+// Contraseña en texto plano de los usuarios de prueba (se guarda hasheada).
+export const MOCK_DEFAULTS = Object.freeze({
+  PASSWORD: 'coder123',
+  EMAIL_DOMAIN: 'test.com'
 })
 
 export const ENVIRONMENTS = Object.freeze({
@@ -21,6 +74,7 @@ export const HTTP_STATUS = Object.freeze({
   CREATED: 201,
   NO_CONTENT: 204,
   BAD_REQUEST: 400,
+  FORBIDDEN: 403,
   NOT_FOUND: 404,
   CONFLICT: 409,
   INTERNAL_SERVER_ERROR: 500

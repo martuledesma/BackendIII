@@ -58,5 +58,23 @@ export const usersRepository = {
       .findOneAndUpdate({ _id: id, ...BASE_FILTER }, { isDeleted: true }, { new: true })
       .select(PUBLIC_PROJECTION)
       .lean()
+  },
+
+  // Solo los _id: lo usa el seeding para relacionar pedidos con clientes y repartidores.
+  getIdsByRole: async (role) => {
+    const docs = await UserModel.find({ role, ...BASE_FILTER }).select('_id').lean()
+    return docs.map((doc) => doc._id)
+  },
+
+  // Inserción masiva (carga de datos de prueba). ordered:false sigue aunque falle un documento.
+  insertMany: async (users) => {
+    const inserted = await UserModel.insertMany(users, { ordered: false })
+    return inserted.length
+  },
+
+  // Borra físicamente solo los documentos generados por el módulo de mocks.
+  deleteMocks: async () => {
+    const { deletedCount } = await UserModel.deleteMany({ isMock: true })
+    return deletedCount
   }
 }
