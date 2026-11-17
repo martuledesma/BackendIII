@@ -19,6 +19,17 @@ export const ERRORS = Object.freeze({
   INVALID_PRIORITY: entry('INVALID_PRIORITY', HTTP_STATUS.BAD_REQUEST, 'La prioridad indicada no es válida'),
   COURIER_PROFILE_REQUIRED: entry('COURIER_PROFILE_REQUIRED', HTTP_STATUS.BAD_REQUEST, 'Un repartidor necesita un perfil con vehículo válido'),
 
+  // ---------- Archivos ----------
+  FILE_REQUIRED: entry('FILE_REQUIRED', HTTP_STATUS.BAD_REQUEST, 'Falta el archivo en la petición'),
+  UNEXPECTED_FILE_FIELD: entry('UNEXPECTED_FILE_FIELD', HTTP_STATUS.BAD_REQUEST, 'El archivo se envió en un campo distinto al esperado'),
+  TOO_MANY_FILES: entry('TOO_MANY_FILES', HTTP_STATUS.BAD_REQUEST, 'Se envió más de un archivo'),
+  INVALID_MULTIPART: entry('INVALID_MULTIPART', HTTP_STATUS.BAD_REQUEST, 'El cuerpo multipart/form-data es inválido'),
+  INVALID_DOCUMENT_TYPE: entry('INVALID_DOCUMENT_TYPE', HTTP_STATUS.BAD_REQUEST, 'El tipo de documento no es válido'),
+  FILE_TOO_LARGE: entry('FILE_TOO_LARGE', HTTP_STATUS.PAYLOAD_TOO_LARGE, 'El archivo supera el tamaño máximo permitido'),
+  INVALID_FILE_TYPE: entry('INVALID_FILE_TYPE', HTTP_STATUS.UNSUPPORTED_MEDIA_TYPE, 'El tipo de archivo no está permitido'),
+  DOCUMENT_NOT_FOUND: entry('DOCUMENT_NOT_FOUND', HTTP_STATUS.NOT_FOUND, 'El documento no existe'),
+  FILE_SAVE_FAILED: entry('FILE_SAVE_FAILED', HTTP_STATUS.INTERNAL_SERVER_ERROR, 'No se pudo guardar el archivo'),
+
   // ---------- 400: mocks ----------
   MOCK_INVALID_QUANTITY: entry('MOCK_INVALID_QUANTITY', HTTP_STATUS.BAD_REQUEST, 'La cantidad de mocks debe ser un número entero'),
   MOCK_NEGATIVE_QUANTITY: entry('MOCK_NEGATIVE_QUANTITY', HTTP_STATUS.BAD_REQUEST, 'La cantidad de mocks no puede ser negativa ni cero'),

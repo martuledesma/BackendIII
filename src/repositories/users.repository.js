@@ -60,6 +60,15 @@ export const usersRepository = {
       .lean()
   },
 
+  // Asocia los metadatos de un archivo al usuario y devuelve el usuario actualizado.
+  addDocument: async (id, metadata) => {
+    if (!isValidId(id)) return null
+    return UserModel
+      .findOneAndUpdate({ _id: id, ...BASE_FILTER }, { $push: { documents: metadata } }, { new: true, runValidators: true })
+      .select(PUBLIC_PROJECTION)
+      .lean()
+  },
+
   // Solo los _id: lo usa el seeding para relacionar pedidos con clientes y repartidores.
   getIdsByRole: async (role) => {
     const docs = await UserModel.find({ role, ...BASE_FILTER }).select('_id').lean()

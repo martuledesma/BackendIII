@@ -47,6 +47,16 @@ export const deliveriesRepository = {
       .lean()
   },
 
+  // Asocia los metadatos de un comprobante a la entrega y devuelve la entrega actualizada.
+  addProof: async (id, metadata) => {
+    if (!isValidId(id)) return null
+    return DeliveryModel
+      .findByIdAndUpdate(id, { $push: { proofs: metadata } }, { new: true, runValidators: true })
+      .populate('order', ORDER_FIELDS)
+      .populate('courier', COURIER_FIELDS)
+      .lean()
+  },
+
   insertMany: async (deliveries) => {
     const inserted = await DeliveryModel.insertMany(deliveries, { ordered: false })
     return inserted.length

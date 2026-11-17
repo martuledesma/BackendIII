@@ -11,3 +11,6 @@ coverage/
 logs/*
 !logs/.gitkeep
 *.log
+
+# Archivos subidos por los usuarios (Multer). Nunca se suben al repo.
+uploads/

@@ -13,6 +13,7 @@ import { ordersPaths } from '../docs/paths/orders.docs.js'
 import { deliveriesPaths } from '../docs/paths/deliveries.docs.js'
 import { mocksPaths } from '../docs/paths/mocks.docs.js'
 import { loggerPaths } from '../docs/paths/logger.docs.js'
+import { uploadsPaths } from '../docs/paths/uploads.docs.js'
 
 const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
 
@@ -49,6 +50,7 @@ export const swaggerSpec = Object.freeze({
     { name: 'Products', description: 'Catálogo de productos' },
     { name: 'Orders', description: 'Pedidos de los clientes' },
     { name: 'Deliveries', description: 'Entregas asociadas a pedidos y repartidores' },
+    { name: 'Uploads', description: 'Carga y descarga de archivos (multipart/form-data): documentos de usuario y comprobantes de entrega' },
     { name: 'Mocks', description: 'Generación de datos falsos (sin guardar) y carga controlada de datos de prueba en MongoDB' },
     { name: 'Logger', description: 'Herramienta interna para validar la configuración de logs. No es una funcionalidad del negocio.' }
   ],
@@ -57,6 +59,7 @@ export const swaggerSpec = Object.freeze({
     ...productsPaths,
     ...ordersPaths,
     ...deliveriesPaths,
+    ...uploadsPaths,
     ...mocksPaths,
     ...loggerPaths
   },

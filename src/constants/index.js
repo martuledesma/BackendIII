@@ -58,6 +58,50 @@ export const DELIVERY_DEFAULTS = Object.freeze({
   TRACKING_LENGTH: 10
 })
 
+// ---------- Carga de archivos ----------
+
+// Tipos de archivo aceptados. La firma (magic bytes) se compara con el contenido real del archivo,
+// así no alcanza con renombrar un .exe a .pdf o mandar un Content-Type falso.
+export const ALLOWED_FILE_TYPES = Object.freeze({
+  'application/pdf': Object.freeze({ label: 'PDF', extension: '.pdf', extensions: ['.pdf'], signature: [0x25, 0x50, 0x44, 0x46] }),
+  'image/jpeg': Object.freeze({ label: 'JPG', extension: '.jpg', extensions: ['.jpg', '.jpeg'], signature: [0xff, 0xd8, 0xff] }),
+  'image/png': Object.freeze({ label: 'PNG', extension: '.png', extensions: ['.png'], signature: [0x89, 0x50, 0x4e, 0x47] })
+})
+
+export const UPLOAD_LIMITS = Object.freeze({
+  MAX_FILE_SIZE_MB: 5,
+  MAX_FILE_SIZE_BYTES: 5 * 1024 * 1024,
+  MAX_FILES: 1,
+  MAX_FIELDS: 5,
+  MAX_FIELD_SIZE_BYTES: 1024
+})
+
+// Nombre del campo multipart que trae el archivo en cada endpoint.
+export const FILE_FIELDS = Object.freeze({
+  USER_DOCUMENT: 'document',
+  DELIVERY_PROOF: 'proof'
+})
+
+// Documentos de usuario. Los de repartidor (licencia y cédula del vehículo) solo los puede subir un COURIER.
+export const USER_DOCUMENT_TYPES = Object.freeze({
+  ID_CARD: 'ID_CARD', // DNI
+  PROOF_OF_ADDRESS: 'PROOF_OF_ADDRESS', // constancia de domicilio
+  DRIVER_LICENSE: 'DRIVER_LICENSE', // licencia de conducir
+  VEHICLE_REGISTRATION: 'VEHICLE_REGISTRATION' // cédula del vehículo
+})
+
+export const COURIER_ONLY_DOCUMENT_TYPES = Object.freeze([
+  USER_DOCUMENT_TYPES.DRIVER_LICENSE,
+  USER_DOCUMENT_TYPES.VEHICLE_REGISTRATION
+])
+
+// Comprobantes de una entrega.
+export const DELIVERY_PROOF_TYPES = Object.freeze({
+  DELIVERY_RECEIPT: 'DELIVERY_RECEIPT', // remito firmado
+  DELIVERY_PHOTO: 'DELIVERY_PHOTO', // foto del paquete entregado
+  SIGNATURE: 'SIGNATURE' // firma del destinatario
+})
+
 // Entidades que se pueden generar / insertar desde /api/mocks.
 // El valor es el nombre de la colección en MongoDB.
 export const MOCK_ENTITIES = Object.freeze({
@@ -114,6 +158,8 @@ export const HTTP_STATUS = Object.freeze({
   FORBIDDEN: 403,
   NOT_FOUND: 404,
   CONFLICT: 409,
+  PAYLOAD_TOO_LARGE: 413,
+  UNSUPPORTED_MEDIA_TYPE: 415,
   INTERNAL_SERVER_ERROR: 500
 })
 

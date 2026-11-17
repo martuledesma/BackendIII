@@ -186,6 +186,83 @@ export class LastAdminError extends ConflictError {
   constructor () { super(ERRORS.LAST_ADMIN) }
 }
 
+// ---------- Archivos ----------
+
+export class FileError extends AppError {}
+
+export class FileRequiredError extends FileError {
+  constructor (field) {
+    super(ERRORS.FILE_REQUIRED, {
+      message: `Falta el archivo: enviálo como multipart/form-data en el campo "${field}"`,
+      details: { field }
+    })
+  }
+}
+
+export class UnexpectedFileFieldError extends FileError {
+  constructor (received, expected) {
+    super(ERRORS.UNEXPECTED_FILE_FIELD, {
+      message: `El archivo llegó en el campo "${received}", pero se espera en "${expected}"`,
+      details: { received, expected }
+    })
+  }
+}
+
+export class TooManyFilesError extends FileError {
+  constructor (max) {
+    super(ERRORS.TOO_MANY_FILES, { message: `Solo se acepta ${max} archivo por petición`, details: { max } })
+  }
+}
+
+export class InvalidMultipartError extends FileError {
+  constructor (reason) {
+    super(ERRORS.INVALID_MULTIPART, { details: { reason } })
+  }
+}
+
+export class InvalidDocumentTypeError extends FileError {
+  constructor (value, allowed, reason) {
+    super(ERRORS.INVALID_DOCUMENT_TYPE, {
+      message: reason ?? `Tipo de documento inválido "${value}". Valores permitidos: ${allowed.join(', ')}`,
+      details: { field: 'documentType', value, allowed }
+    })
+  }
+}
+
+export class FileTooLargeError extends FileError {
+  constructor (maxMb) {
+    super(ERRORS.FILE_TOO_LARGE, {
+      message: `El archivo supera el tamaño máximo de ${maxMb} MB`,
+      details: { maxSizeMB: maxMb }
+    })
+  }
+}
+
+export class InvalidFileTypeError extends FileError {
+  constructor ({ mimeType, extension, allowed, reason }) {
+    super(ERRORS.INVALID_FILE_TYPE, {
+      message: reason ?? `Tipo de archivo no permitido (${mimeType}, ${extension || 'sin extensión'}). Se aceptan: ${allowed.join(', ')}`,
+      details: { mimeType, extension, allowed }
+    })
+  }
+}
+
+export class DocumentNotFoundError extends NotFoundError {
+  constructor (entity, entityId, documentId) {
+    super(ERRORS.DOCUMENT_NOT_FOUND, {
+      message: `No existe el documento ${documentId} en ${entity} ${entityId}`,
+      details: { entity, entityId, documentId }
+    })
+  }
+}
+
+export class FileSaveError extends FileError {
+  constructor (cause) {
+    super(ERRORS.FILE_SAVE_FAILED, { details: { reason: cause?.message ?? null }, cause })
+    this.isOperational = false
+  }
+}
+
 // ---------- Mocks ----------
 
 // Elige el código según el problema: no es entero, es <= 0 o supera el máximo.

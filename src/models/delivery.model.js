@@ -1,6 +1,7 @@
 // El modelo solo define la estructura del documento. Sin lógica de negocio.
 import mongoose from 'mongoose'
 import { DELIVERY_STATUS } from '../constants/index.js'
+import { fileMetadataSchema } from './file-metadata.schema.js'
 
 const deliverySchema = new mongoose.Schema(
   {
@@ -16,6 +17,8 @@ const deliverySchema = new mongoose.Schema(
     trackingCode: { type: String, required: true, unique: true },
     estimatedDeliveryDate: { type: Date, required: true },
     deliveredAt: { type: Date, default: null },
+    // Comprobantes de la entrega (remito, foto, firma): solo metadatos, el archivo está en uploads/.
+    proofs: { type: [fileMetadataSchema], default: [] },
     isMock: { type: Boolean, default: false }
   },
   { timestamps: true, versionKey: false }

@@ -1,6 +1,7 @@
 // El modelo solo define la estructura del documento. Sin lógica de negocio.
 import mongoose from 'mongoose'
 import { USER_ROLES, VEHICLE_TYPES } from '../constants/index.js'
+import { fileMetadataSchema } from './file-metadata.schema.js'
 
 // Datos propios del repartidor. Solo se completa cuando role === COURIER
 // (esa regla la controla la capa de servicios).
@@ -26,6 +27,8 @@ const userSchema = new mongoose.Schema(
       default: USER_ROLES.USER
     },
     courierProfile: { type: courierProfileSchema, default: null },
+    // Documentos subidos (DNI, licencia...): solo metadatos, el archivo está en uploads/.
+    documents: { type: [fileMetadataSchema], default: [] },
     isMock: { type: Boolean, default: false },
     isDeleted: { type: Boolean, default: false }
   },

@@ -8,6 +8,7 @@ API REST de ShipNow con **arquitectura por capas** (Router → Controller → Se
 - Módulo 4: logging y monitoreo básico con Winston → ver [Logging](#logging-con-winston).
 - Módulo 5: documentación de la API con Swagger → ver [Documentación con Swagger](#documentación-con-swagger).
 - Módulo 6: testing funcional con Mocha, Chai y Supertest → ver [Testing](#testing).
+- Módulo 7: carga de archivos, documentos y comprobantes con Multer → ver [Carga de archivos](#carga-de-archivos-multer).
 
 > 📘 **Documentación interactiva:** con el servidor levantado, entrá a **http://localhost:8080/api/docs**.
 
@@ -60,6 +61,7 @@ src/
 │   ├── logger.factory.js    # configuración única de Winston (niveles, formato, salidas, entornos)
 │   ├── logger.js            # instancia compartida del logger
 │   ├── swagger.config.js    # especificación OpenAPI (info, servidor, tags) + opciones de Swagger UI
+│   ├── multer.config.js     # configuración única de Multer: carpetas, nombres, tipos, tamaño, errores
 │   ├── db.config.js         # conexión a MongoDB
 │   └── index.js             # punto de entrada de la configuración
 ├── constants/
@@ -83,6 +85,7 @@ src/
 └── server.js                # arranque (config → DB → listen), con logs fatales si falla
 logs/                        # archivos de log generados (ignorados por Git)
 tests/                       # tests funcionales (Mocha + Chai + Supertest), uno por módulo
+uploads/                     # archivos subidos (se crea solo; ignorado por Git)
 ```
 
 ## Endpoints
@@ -516,6 +519,7 @@ Los endpoints están agrupados por **tags**, uno por módulo:
 | **Products** | `GET/POST /api/products`, `GET/PUT/DELETE /api/products/{pid}` |
 | **Orders** | `GET/POST /api/orders`, `GET /api/orders/{oid}`, `PATCH /api/orders/{oid}/status` |
 | **Deliveries** | `GET /api/deliveries`, `GET /api/deliveries/{did}` |
+| **Uploads** | `POST/GET /api/users/{uid}/documents`, `GET /api/users/{uid}/documents/{docId}/file`, `POST/GET /api/deliveries/{did}/proofs`, `GET /api/deliveries/{did}/proofs/{proofId}/file` |
 | **Mocks** | `GET /api/mocks/users`, `/couriers`, `/orders`, `/deliveries`, `/dataset` · `POST /api/mocks/seed` · `DELETE /api/mocks/seed` |
 | **Logger** | `GET /api/loggerTest` (herramienta interna de validación, no es una funcionalidad del negocio) |
 
@@ -532,7 +536,7 @@ Cada endpoint indica el método, la ruta, una descripción, los parámetros de r
 - **La configuración está separada de las rutas.** `src/config/swagger.config.js` arma la especificación con la información general, el servidor local y los tags. La documentación de cada módulo vive en `src/docs/paths/`. `src/routes/docs.router.js` solo sirve la especificación.
 - **Los enums salen de las constantes del proyecto.** Roles, estados de pedido y de entrega, prioridades, vehículos, entidades de mocks y límites de `qty` se toman de `src/constants/index.js`, el mismo archivo que usan los modelos y los services.
 - **Los errores salen del diccionario real.** Cada respuesta de error se genera con `errorResponses(...códigos)` (`src/docs/helpers.js`), que toma el status y el mensaje de `src/errors/errors.dictionary.js`. Si se documenta un código que no existe, la app no arranca. Además, el status HTTP de cada código siempre es el real.
-- **Las rutas documentadas coinciden con las de Express.** Son las mismas 24 operaciones en los routers que en Swagger, con los mismos nombres de parámetros (`uid`, `pid`, `oid`, `did`, `qty`, `role`, `entity`, `status`, `priority`, etc.).
+- **Las rutas documentadas coinciden con las de Express.** Son las mismas 30 operaciones en los routers que en Swagger, con los mismos nombres de parámetros (`uid`, `pid`, `oid`, `did`, `qty`, `role`, `entity`, `status`, `priority`, etc.).
 
 ### Aclaraciones para probar desde Swagger
 
@@ -604,6 +608,7 @@ Los tests están en `tests/`, agrupados por módulo:
 | `mocks.test.js` | Generar users, couriers, orders, deliveries y dataset con estructura y relaciones válidas, sin guardar nada. Seed de users, all (por query y por body) y orders. Borrado que conserva los datos reales. | **Cantidades inválidas**: `-5` y `0` → `MOCK_NEGATIVE_QUANTITY`; `abc`, `2.5` y repetido → `MOCK_INVALID_QUANTITY`; `101` → `MOCK_QUANTITY_EXCEEDED`. También `INVALID_ROLE`, `INVALID_QUERY_PARAM`, `MOCK_INVALID_ENTITY`, 409 `MOCK_MISSING_DEPENDENCIES` y 500 `MOCK_SEED_FAILED` con rollback verificado en la base. |
 | `logger.test.js` | `GET /api/loggerTest`: los 6 niveles, el entorno `test`, qué nivel va a cada salida, y que `logs/error.log` tenga solo `error` y `fatal` | — |
 | `docs.test.js` | Swagger UI en `/api/docs/`, redirección de `/api/docs`, `/api/docs.json` con la info, los tags y los schemas | **Coherencia con Swagger**: cada GET por id documentado con 404 se llama con un id inexistente y tiene que devolver el código documentado. Lo mismo con el 400 `INVALID_ID` y con los errores de cantidad de los 5 GET de mocks. |
+| `uploads.test.js` | Subir un documento de usuario (archivo en su carpeta y metadatos en el usuario), una licencia de un `COURIER`, listar y descargar byte a byte, subir comprobantes de entrega (con tipo por defecto y explícito), listarlos y descargarlos | `FILE_REQUIRED` (sin archivo o sin multipart), `MISSING_FIELDS`, `INVALID_DOCUMENT_TYPE` (tipo inexistente o licencia para un cliente), 415 `INVALID_FILE_TYPE` (`.txt`, PDF falso, extensión que no coincide), 413 `FILE_TOO_LARGE`, `UNEXPECTED_FILE_FIELD`, `INVALID_FIELD`, 404 `USER_NOT_FOUND` / `DELIVERY_NOT_FOUND` / `DOCUMENT_NOT_FOUND`, `INVALID_ID`. Después de cada test se verifica que no quede ningún archivo temporal suelto. |
 | `products.test.js` | Crear (estado según stock), listar con y sin los productos sin stock | `MISSING_FIELDS`, 409 `PRODUCT_CODE_TAKEN`, 404 `PRODUCT_NOT_FOUND` |
 | `errors.test.js` | — | 404 `ROUTE_NOT_FOUND` (ruta inexistente), `INVALID_JSON`, misma estructura en todos los errores |
 
@@ -619,7 +624,129 @@ Los tests están en `tests/`, agrupados por módulo:
   - `tests/setup.js` (hooks globales) vacía la base `_test` al empezar y al terminar la suite.
   - Además, cada archivo vacía la base en `before()` y `after()`.
   - `mocks.test.js` lo hace en `beforeEach()`, y `orders.test.js` crea un pedido nuevo en `beforeEach()` para los tests de estado.
+- **Archivos subidos en los tests.** En testing, Multer guarda en `uploads/test/`, y `uploads.test.js` borra esa carpeta al terminar. Además, `uploads/` está en `.gitignore`.
 - **Independientes del orden y repetibles.** Ningún grupo depende de lo que dejó otro, y la suite se puede correr dos veces seguidas sin borrar nada a mano.
+
+## Carga de archivos (Multer)
+
+ShipNow permite subir **documentos de usuario** y **comprobantes de entrega** como `multipart/form-data`. El archivo se guarda en el disco del servidor; en MongoDB se guardan **solo los metadatos**, dentro de la entidad a la que pertenece: `user.documents[]` o `delivery.proofs[]`.
+
+### Endpoints
+
+| Método | Ruta | Campo del archivo | Otros campos | Qué hace |
+|---|---|---|---|---|
+| POST | `/api/users/:uid/documents` | `document` | `documentType` (**obligatorio**) | Sube un documento y lo asocia al usuario |
+| GET | `/api/users/:uid/documents` | — | — | Lista los metadatos de los documentos del usuario |
+| GET | `/api/users/:uid/documents/:docId/file` | — | — | Descarga el archivo, con su nombre original |
+| POST | `/api/deliveries/:did/proofs` | `proof` | `documentType` (opcional, por defecto `DELIVERY_RECEIPT`) | Sube un comprobante y lo asocia a la entrega, y a través de ella al pedido |
+| GET | `/api/deliveries/:did/proofs` | — | — | Lista los comprobantes de la entrega |
+| GET | `/api/deliveries/:did/proofs/:proofId/file` | — | — | Descarga el comprobante |
+
+Los metadatos también aparecen en `GET /api/users/:uid` (`documents`) y en `GET /api/deliveries/:did` (`proofs`).
+
+**Tipos de documento** (`src/constants/index.js`):
+
+| Entidad | `documentType` | Carpeta |
+|---|---|---|
+| Usuario | `ID_CARD` (DNI), `PROOF_OF_ADDRESS` (constancia de domicilio) | `uploads/users/documents/` |
+| Usuario `COURIER` | `DRIVER_LICENSE` (licencia), `VEHICLE_REGISTRATION` (cédula del vehículo). Para un usuario que no es `COURIER` responden 400. | `uploads/users/licenses/` |
+| Entrega | `DELIVERY_RECEIPT` (remito), `DELIVERY_PHOTO` (foto del paquete), `SIGNATURE` (firma) | `uploads/deliveries/proofs/` |
+
+### Tipos y tamaño aceptados
+
+- **Tipos:** PDF (`.pdf`), JPG (`.jpg`, `.jpeg`) y PNG (`.png`). Se valida el `Content-Type`, que la **extensión** coincida con el tipo y además la **firma real del archivo** (magic bytes). Un `.txt` renombrado a `.pdf` se rechaza.
+- **Tamaño máximo:** **5 MB**.
+- **Cantidad:** **un solo archivo** por petición.
+
+Estos límites están en `ALLOWED_FILE_TYPES` y `UPLOAD_LIMITS` (`src/constants/index.js`).
+
+### Cómo funciona
+
+- **Configuración centralizada.** `src/config/multer.config.js` define:
+  - las carpetas;
+  - el nombre de los archivos: `<timestamp>-<16 hex aleatorios>.<ext>`, nunca el nombre original;
+  - el filtro de tipos y los límites;
+  - la traducción de los errores de Multer al formato de errores de la API.
+
+  Los routers solo usan el middleware que exporta (`uploadUserDocument`, `uploadDeliveryProof`).
+- **Nunca quedan archivos sueltos.**
+  1. Multer escribe el archivo en `uploads/tmp/`.
+  2. El service (`src/services/files.service.js`) valida el id, el archivo, los campos, el tipo de documento, que la entidad exista y la firma del archivo.
+  3. Recién después lo mueve a su carpeta definitiva y guarda los metadatos en la entidad.
+
+  Si cualquier paso falla, borra el archivo temporal o el ya movido.
+- **Capas.** El acceso al disco está en `src/repositories/file-storage.repository.js`, igual que Mongoose está solo en los repositories.
+
+**Metadatos guardados** (`src/models/file-metadata.schema.js`):
+
+```json
+{
+  "_id": "6739f1c2a8b4e5d6f7a8b9c1",
+  "originalName": "dni-frente.pdf",
+  "fileName": "1763332800000-9f2c4e1ab37d5c08.pdf",
+  "path": "uploads/users/documents/1763332800000-9f2c4e1ab37d5c08.pdf",
+  "mimeType": "application/pdf",
+  "size": 48213,
+  "documentType": "ID_CARD",
+  "uploadedAt": "2026-11-16T23:20:00.000Z"
+}
+```
+
+### Errores
+
+Todos responden con el formato general de la API (`{ status: "error", error: { code, message, ... } }`):
+
+| Código | HTTP | Cuándo |
+|---|---|---|
+| `FILE_REQUIRED` | 400 | No se envió archivo, o la petición no es `multipart/form-data` |
+| `UNEXPECTED_FILE_FIELD` | 400 | El archivo llegó en un campo distinto a `document` o `proof` |
+| `TOO_MANY_FILES` | 400 | Se envió más de un archivo |
+| `INVALID_MULTIPART` | 400 | El cuerpo multipart está mal formado |
+| `MISSING_FIELDS` | 400 | Falta `documentType` en un documento de usuario |
+| `INVALID_DOCUMENT_TYPE` | 400 | `documentType` inexistente, o licencia para un usuario que no es `COURIER` |
+| `INVALID_FIELD` | 400 | Se envió un campo de texto no permitido |
+| `FILE_TOO_LARGE` | 413 | El archivo supera los 5 MB |
+| `INVALID_FILE_TYPE` | 415 | Tipo o extensión no permitidos, o el contenido no coincide con el tipo declarado |
+| `USER_NOT_FOUND` / `DELIVERY_NOT_FOUND` | 404 | La entidad no existe (el archivo no se guarda) |
+| `DOCUMENT_NOT_FOUND` | 404 | Se pidió descargar un documento o comprobante que no existe |
+| `FILE_SAVE_FAILED` | 500 | No se pudo mover el archivo o guardar los metadatos (se revierte todo) |
+
+### Logs
+
+- `info`: documento subido, o comprobante asociado a una entrega (con la ruta y el tamaño).
+- `warning`: intento de subir un tipo no permitido, un archivo cuyo contenido no coincide con su tipo, y los errores 4xx de carga.
+- `error`: fallas al guardar, o un archivo que figura en la base pero no está en el disco.
+
+### Carpeta `uploads/` y Git
+
+La carpeta se crea sola al arrancar la app y está en `.gitignore`, así que ningún archivo subido se sube al repo. En testing se usa `uploads/test/`, que los tests borran al terminar.
+
+### Cómo probarlo
+
+Desde **Swagger** (`/api/docs`, tag **Uploads**): **Try it out** muestra un selector de archivo y los campos del formulario.
+
+Desde la terminal, con un usuario y una entrega existentes:
+
+```bash
+# Documento de usuario (DNI en PDF)
+curl -X POST http://localhost:8080/api/users/<UID>/documents \
+  -F "document=@./dni.pdf" -F "documentType=ID_CARD"
+
+# Listar y descargar
+curl http://localhost:8080/api/users/<UID>/documents
+curl -OJ http://localhost:8080/api/users/<UID>/documents/<DOC_ID>/file
+
+# Comprobante de entrega (foto)
+curl -X POST http://localhost:8080/api/deliveries/<DID>/proofs \
+  -F "proof=@./paquete.png" -F "documentType=DELIVERY_PHOTO"
+
+# Errores
+curl -X POST http://localhost:8080/api/users/<UID>/documents -F "documentType=ID_CARD"                               # 400 FILE_REQUIRED
+curl -X POST http://localhost:8080/api/users/<UID>/documents -F "document=@./notas.txt" -F "documentType=ID_CARD"   # 415 INVALID_FILE_TYPE
+curl -X POST http://localhost:8080/api/users/<UID>/documents -F "document=@./dni.pdf" -F "documentType=PASAPORTE"   # 400 INVALID_DOCUMENT_TYPE
+```
+
+Para conseguir un `<UID>` y un `<DID>`, podés correr `POST /api/mocks/seed?entity=all&qty=5` y después `GET /api/users` y `GET /api/deliveries`.
 
 ## Por qué separé la lógica así entre Service y Repository
 

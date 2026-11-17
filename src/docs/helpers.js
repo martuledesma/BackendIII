@@ -12,6 +12,8 @@ const STATUS_DESCRIPTIONS = Object.freeze({
   403: 'Operación no permitida en el entorno actual',
   404: 'El recurso no existe',
   409: 'Conflicto con el estado actual de los datos',
+  413: 'El archivo supera el tamaño máximo',
+  415: 'Tipo de archivo no permitido',
   500: 'Error interno del servidor'
 })
 
@@ -41,6 +43,15 @@ const SAMPLE_ERRORS = Object.freeze({
   MOCK_SEED_FAILED: { message: 'Falló la carga de all en MongoDB. Se revirtieron los registros del lote.', details: { entity: 'all', reason: 'Falla simulada después de insertar users (simulateFailure=true)', rollback: { done: true, eliminados: { users: 6 } } } },
   INVALID_STATUS_TRANSITION: { message: 'No se puede pasar un pedido de PENDING a DELIVERED. Desde PENDING solo se permite: CONFIRMED, CANCELLED', details: { entity: 'pedido', from: 'PENDING', to: 'DELIVERED', allowed: ['CONFIRMED', 'CANCELLED'] } },
   COURIER_NOT_ASSIGNED: { message: 'El pedido 6739f1c2a8b4e5d6f7a8b9c0 no puede salir a reparto: su entrega no tiene repartidor asignado', details: { orderId: '6739f1c2a8b4e5d6f7a8b9c0' } },
+  FILE_REQUIRED: { message: 'Falta el archivo: enviálo como multipart/form-data en el campo "document"', details: { field: 'document' } },
+  UNEXPECTED_FILE_FIELD: { message: 'El archivo llegó en el campo "archivo", pero se espera en "document"', details: { received: 'archivo', expected: 'document' } },
+  TOO_MANY_FILES: { message: 'Solo se acepta 1 archivo por petición', details: { max: 1 } },
+  INVALID_MULTIPART: { message: 'El cuerpo multipart/form-data es inválido', details: { reason: 'Unexpected end of form' } },
+  INVALID_DOCUMENT_TYPE: { message: 'Tipo de documento inválido "PASAPORTE". Valores permitidos: ID_CARD, PROOF_OF_ADDRESS, DRIVER_LICENSE, VEHICLE_REGISTRATION', details: { field: 'documentType', value: 'PASAPORTE', allowed: ['ID_CARD', 'PROOF_OF_ADDRESS', 'DRIVER_LICENSE', 'VEHICLE_REGISTRATION'] } },
+  FILE_TOO_LARGE: { message: 'El archivo supera el tamaño máximo de 5 MB', details: { maxSizeMB: 5 } },
+  INVALID_FILE_TYPE: { message: 'Tipo de archivo no permitido (text/plain, .txt). Se aceptan: PDF, JPG, PNG', details: { mimeType: 'text/plain', extension: '.txt', allowed: ['PDF', 'JPG', 'PNG'] } },
+  DOCUMENT_NOT_FOUND: { message: 'No existe el documento 6739f1c2a8b4e5d6f7a8b9c1 en el usuario 6739f1c2a8b4e5d6f7a8b9c0', details: { entity: 'el usuario', entityId: '6739f1c2a8b4e5d6f7a8b9c0', documentId: '6739f1c2a8b4e5d6f7a8b9c1' } },
+  FILE_SAVE_FAILED: { message: 'No se pudo guardar el archivo', details: { reason: 'EACCES: permission denied' } },
   ROUTE_NOT_FOUND: { message: 'Ruta no encontrada: GET /api/no-existe', details: { method: 'GET', path: '/api/no-existe' } }
 })
 

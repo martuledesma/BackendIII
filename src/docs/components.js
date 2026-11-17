@@ -10,7 +10,11 @@ import {
   MOCK_ENTITIES,
   MOCK_LIMITS,
   MOCK_DEFAULTS,
-  RESPONSE_STATUS
+  RESPONSE_STATUS,
+  USER_DOCUMENT_TYPES,
+  DELIVERY_PROOF_TYPES,
+  ALLOWED_FILE_TYPES,
+  UPLOAD_LIMITS
 } from '../constants/index.js'
 import { ERRORS } from '../errors/index.js'
 import { schemaRef as ref } from './helpers.js'
@@ -57,6 +61,56 @@ export const schemas = {
     }
   },
 
+  // ---------- Archivos ----------
+  FileMetadata: {
+    type: 'object',
+    description: 'Metadatos de un archivo subido. El archivo está en el disco del servidor; en MongoDB solo se guarda esta referencia, dentro de la entidad a la que pertenece.',
+    properties: {
+      _id: objectId('Id del documento (se usa para descargarlo)', '6739f1c2a8b4e5d6f7a8b9c1'),
+      originalName: { type: 'string', example: 'dni-frente.pdf' },
+      fileName: { type: 'string', description: 'Nombre generado por el servidor', example: '1763332800000-9f2c4e1ab37d5c08.pdf' },
+      path: { type: 'string', description: 'Ruta relativa en el servidor', example: 'uploads/users/documents/1763332800000-9f2c4e1ab37d5c08.pdf' },
+      mimeType: { type: 'string', enum: Object.keys(ALLOWED_FILE_TYPES), example: 'application/pdf' },
+      size: { type: 'integer', description: 'Tamaño en bytes', example: 48213 },
+      documentType: { type: 'string', enum: [...Object.values(USER_DOCUMENT_TYPES), ...Object.values(DELIVERY_PROOF_TYPES)], example: USER_DOCUMENT_TYPES.ID_CARD },
+      uploadedAt: { type: 'string', format: 'date-time', example: '2026-11-16T23:20:00.000Z' }
+    }
+  },
+  UserDocumentUploadInput: {
+    type: 'object',
+    required: ['document', 'documentType'],
+    properties: {
+      document: { type: 'string', format: 'binary', description: `Archivo ${Object.values(ALLOWED_FILE_TYPES).map((t) => t.label).join(', ')}, máximo ${UPLOAD_LIMITS.MAX_FILE_SIZE_MB} MB` },
+      documentType: {
+        type: 'string',
+        enum: Object.values(USER_DOCUMENT_TYPES),
+        description: `${USER_DOCUMENT_TYPES.DRIVER_LICENSE} y ${USER_DOCUMENT_TYPES.VEHICLE_REGISTRATION} solo para usuarios ${USER_ROLES.COURIER}`
+      }
+    }
+  },
+  DeliveryProofUploadInput: {
+    type: 'object',
+    required: ['proof'],
+    properties: {
+      proof: { type: 'string', format: 'binary', description: `Archivo ${Object.values(ALLOWED_FILE_TYPES).map((t) => t.label).join(', ')}, máximo ${UPLOAD_LIMITS.MAX_FILE_SIZE_MB} MB` },
+      documentType: { type: 'string', enum: Object.values(DELIVERY_PROOF_TYPES), default: DELIVERY_PROOF_TYPES.DELIVERY_RECEIPT, description: 'Tipo de comprobante (opcional)' }
+    }
+  },
+  UserDocumentUploadResult: {
+    type: 'object',
+    properties: {
+      document: ref('FileMetadata'),
+      user: { allOf: [ref('User')], description: 'Usuario actualizado, con todos sus documentos' }
+    }
+  },
+  DeliveryProofUploadResult: {
+    type: 'object',
+    properties: {
+      proof: ref('FileMetadata'),
+      delivery: { allOf: [ref('Delivery')], description: 'Entrega actualizada, con todos sus comprobantes' }
+    }
+  },
+
   // ---------- Usuarios ----------
   CourierProfile: {
     type: 'object',
@@ -80,6 +134,7 @@ export const schemas = {
       phone: { type: 'string', nullable: true, example: '+54 381 555-1234' },
       role: { type: 'string', enum: Object.values(USER_ROLES), example: USER_ROLES.USER },
       courierProfile: ref('CourierProfile'),
+      documents: { type: 'array', items: ref('FileMetadata'), description: 'Documentos subidos (solo metadatos)' },
       isMock,
       ...timestamps
     }
@@ -246,6 +301,7 @@ export const schemas = {
       trackingCode: { type: 'string', example: 'SN-5X1PBU00IZ' },
       estimatedDeliveryDate: { type: 'string', format: 'date-time' },
       deliveredAt: { type: 'string', format: 'date-time', nullable: true },
+      proofs: { type: 'array', items: ref('FileMetadata'), description: 'Comprobantes subidos (solo metadatos)' },
       isMock,
       ...timestamps
     }
